@@ -16,6 +16,7 @@ Tasks:
 import sqlite3
 import subprocess
 
+
 MILES_PER_HOUR = 30 #needs to be edited
 SELECT_CMD = "SELECT co2TailpipeGpm, fuelCost08, fuelCostA08, fuelType FROM vehicles "
 WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
