@@ -15,7 +15,7 @@ Tasks:
 """
 import sqlite3
 import subprocess
-
+from urllib.request import urlopen
 
 MILES_PER_HOUR = 30 #needs to be edited
 SELECT_CMD = ("SELECT co2TailpipeGpm, fuelCost08,"
@@ -23,7 +23,12 @@ SELECT_CMD = ("SELECT co2TailpipeGpm, fuelCost08,"
 WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 
 def get_data(url):
-    pass
+    response = urlopen(url)
+    data = response.read()
+    filename = url.split('/')[-1]
+    
+    with open(filename, 'wb') as csv_file:
+        csv_file.write(data)
 
 def csv_to_sql(csv_file):
     database = "cscc.db"
