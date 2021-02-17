@@ -22,6 +22,14 @@ WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 def get_data(url):
     pass
 
+def csv_to_sql(csv_file):
+    database = "cscc.db"
+    conn = sqlite3.connect(database)
+    c = conn.cursor()
+    c.execute("CREATE TABLE vehicles (CO2_A REAL, CO2 REAL, fuel_cost INTEGER, fuel_cost_A INTEGER, fuel_type varchar(200), hlv INTEGER, hpv INTEGER, id INTEGER, lv2 INTEGER, lv4 INTEGER, make varchar(200), model varchar(200), pv2 INTEGER, pv4 INTEGER, v_class varchar(200), year INTEGER)")
+
+    subprocess.call(["sqlite3", database, ".separator ','", ".import trimmed.csv vehicles"])
+
 def get_emissions(input_dict, vehicles):
     model = input_dict["model"]
     make = input_dict["make"]
