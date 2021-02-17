@@ -14,6 +14,7 @@ Tasks:
     translate the written code to user interface
 """
 import sqlite3
+import subprocess
 
 MILES_PER_HOUR = 30 #needs to be edited
 SELECT_CMD = "SELECT co2TailpipeGpm, fuelCost08, fuelCostA08, fuelType FROM vehicles "
