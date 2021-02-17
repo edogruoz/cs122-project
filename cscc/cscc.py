@@ -13,9 +13,36 @@ Tasks:
         about savings
     translate the written code to user interface
 """
+import sqlite3
+
+MILES_PER_HOUR = 30 #needs to be edited
+SELECT_CMD = "SELECT co2TailpipeGpm, fuelCost08, fuelCostA08, fuelType FROM vehicles "
+WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 
 def get_data(url):
     pass
+
+def get_emissions(input_dict, vehicles):
+    model = input_dict["model"]
+    make = input_dict["make"]
+    year = input_dict["year"]
+    array = [model, make, year]
+
+    if input_dict["use_miles"]:
+        use = input_dict["use_miles"]
+    else:
+        use = input_dict["use_hours"]
+        use = MILES_PER_HOUR * use
+    
+    s = SELECT_CMD + WHERE_CMD
+
+    db = sqlite3.connect(vehicles)
+    c = db.cursor()
+    r = c.execute(s, array)
+    rv = r.fetchall()
+    db.close
+
+    #to be continued
 
 def compare_emission(data):
     pass
