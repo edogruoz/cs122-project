@@ -17,6 +17,22 @@ Tasks:
 import pandas as pd
 import sqlite3
 import questionary
+from questionary import Validator, ValidationError, prompt
+from questionary import Style
+
+# Style options for terminal questions
+custom_style = Style([
+    ('qmark', 'fg:#A0E8AF bold'),       # token in front of the question
+    ('question', 'fg:#EDEAD0 bold'),    # question text
+    ('answer', 'fg:#27BB6F bold'),      # submitted answer text behind the question
+    ('pointer', 'fg:#673ab7 bold'),     # pointer used in select and checkbox prompts
+    ('highlighted', 'fg:#673ab7 bold'), # pointed-at choice in select and checkbox prompts
+    ('selected', 'fg:#EDEAD0'),         # style for a selected item of a checkbox
+    ('separator', 'fg:#cc5454'),        # separator in lists
+    ('instruction', ''),                # user instructions for select, rawselect, checkbox
+    ('text', ''),                       # plain text
+    ('disabled', 'fg:#858585 italic')   # disabled choices for select and checkbox prompts
+])
 
 URL = "https://www.fueleconomy.gov/feg/epadata/vehicles.csv"
 
@@ -35,35 +51,95 @@ def build_db(connection):
     '''
     Creates sqlite database file containing only the columns
     relevant for our use from the original vehicle csv.
+    Fetches csv directly from constant URL and filters by
+    constant PERTINENT_DATA.
 
     Input:
-        full_csv: original data set holding
-            superfluous columns
         connection: connection object for db file
     '''
     df = pd.read_csv(URL, usecols=PERTINENT_DATA, index_col='id', engine='c')
     # IMPORTANT .to_sql cannot create a table with a primary key
     df.to_sql('vehicles', con=connection, if_exists='replace')
 
+# Sub classes for prompt toolkit Validator class
+# Used as questionary parameters to reject user input
+# TODO: I'm not the most experienced with OOP so not sure
+# if this has been implemented efficiently (combine both subclasses?)
+class MakeValidator(Validator):
+    def validate(self, document):
+        '''
+        Checks if the car make being inputted is valid, does not
+        let user submit if it isn't in the local database.
+
+        Inputs: document - contains the user's input and updates over
+            time allowing for real time validation, unlike python's input()
+        '''
+        temp_conn = sqlite3.connect('cscc.db')
+        c = temp_conn.cursor()
+        exists_query = 'SELECT EXISTS (SELECT 1 FROM vehicles WHERE make = ?)'
+        exists = c.execute(exists_query, (document.text,)).fetchone()[0]
+        if not exists:
+            raise ValidationError(
+                message="Current entry does not match database!"
+            )
+        c.close()
+        temp_conn.close()
+
+class ModelYearValidator(Validator):
+    def validate(self, document):
+        '''
+        Checks if the car model and year being inputted is valid,
+        does not let user submit if it isn't in the local database.
+
+        Inputs: document - contains the user's input and updates over
+            time allowing for real time validation, unlike python's input()
+        '''
+        temp_conn = sqlite3.connect('cscc.db')
+        c = temp_conn.cursor()
+        exists_query = ('SELECT EXISTS (SELECT 1 FROM vehicles '
+                        'WHERE model || " " || year = ?)')
+        exists = c.execute(exists_query, (document.text,)).fetchone()[0]
+        if not exists:
+            raise ValidationError(
+                message="Current entry does not match database!"
+            )
+        c.close()
+        temp_conn.close()
+
 # WIP
 def get_user_input(cursor):
     '''
     Creates a dictionary with user car information
-    needed for look up as well as daily miles estimation
+    needed for look up along with daily miles estimation
+    and various preferences for car suggestion.
+
+    Inputs: Cursor - cursor object for database we will be querying
+
+    Returns: Input_dict - dictionary containing all submitted user details
     '''
     make_query = 'SELECT DISTINCT make FROM vehicles'
     make_results = cursor.execute(make_query).fetchall()
-    make_results = [i[0] for i in make_results]
-    #'SELECT EXISTS(SELECT 1 FROM myTbl WHERE u_tag="tag")'
-    make_ans = questionary.autocomplete("What is your car's make?\n",
-                                        choices=make_results).ask()
+    make_results = sorted({tup[0] for tup in make_results})
+    make_ans = questionary.autocomplete("What is your car's make?\n   ",
+                                        choices=make_results,
+                                        validate=MakeValidator,
+                                        style=custom_style, qmark='⯁ ').ask()
 
-    mod_year_query = 'SELECT DISTINCT model, year FROM vehicles WHERE make = ?'
-    mod_year_results = cursor.execute(mod_year_query, (make_ans,)).fetchall()
-    mod_year_results = [' '.join((i, str(j))) for i, j in mod_year_results]
-    mod_year_ans = questionary.autocomplete('What about model and year?\n',
-                                            choices=mod_year_results).ask()
-    print(' '.join([make_ans, mod_year_ans]))
+    print()
+    m_y_query = ('SELECT DISTINCT model || " " || year '
+                 'FROM vehicles WHERE make = ?')
+    m_y_results = cursor.execute(m_y_query, (make_ans,)).fetchall()
+    m_y_results = sorted({tup[0] for tup in m_y_results})
+    m_y_ans = questionary.autocomplete('What about model and year?\n   ',
+                                       choices=m_y_results,
+                                       validate=ModelYearValidator,
+                                       style=custom_style, qmark='⯁ ').ask()
+    model,_ , year = m_y_ans.rpartition(' ')
+    input_dict = {'make': make_ans,
+                   'model': model,
+                   'year': int(year)}
+    print(input_dict)
+    return input_dict
 
 def get_emissions(input_dict, vehicles):
     model = input_dict["model"]
@@ -100,14 +176,15 @@ def go():
     annual carbon emissions and spendings to that of
     other drivers. Program will then make recommendations
     of necessary milage reduction, or potential new car
-    purchases/(public transportation use)
+    purchases/(public transportation use).
     '''
     # Creates database if none already exists, skips this
     # computationally expensive processes otherwise.
+    # TODO: update local database efficiently if changes are made to url file
     try:
         conn = sqlite3.connect('file:cscc.db?mode=rw', uri=True)
     except sqlite3.OperationalError:
-        print('Local Database not found\n'
+        print('Local Database not found.\n'
               'Creating database...')
         conn = sqlite3.connect('cscc.db')
         build_db(conn)
