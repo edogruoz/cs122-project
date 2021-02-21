@@ -14,11 +14,23 @@ Tasks:
     translate the written code to user interface
 """
 
-import pandas as pd
 import sqlite3
-import questionary
-from questionary import Validator, ValidationError, prompt
+import pandas as pd
+import questionary as q
+from questionary import ValidationError
 from questionary import Style
+
+URL = "https://www.fueleconomy.gov/feg/epadata/vehicles.csv"
+
+PERTINENT_DATA = ['id', 'make', 'model', 'year', 'VClass',
+                  'pv2', 'pv4', 'hpv', 'lv2', 'lv4', 'hlv',
+                  'fuelCost08', 'fuelCostA08', 'fuelType',
+                  'co2TailpipeGpm', 'co2TailpipeAGpm']
+
+MILES_PER_HOUR = 30 #needs to be edited
+SELECT_CMD = ("SELECT co2TailpipeGpm, fuelCost08,"
+              " fuelCostA08, fuelType FROM vehicles ")
+WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 
 # Style options for terminal questions
 custom_style = Style([
@@ -34,19 +46,6 @@ custom_style = Style([
     ('disabled', 'fg:#858585 italic')   # disabled choices for select and checkbox prompts
 ])
 
-URL = "https://www.fueleconomy.gov/feg/epadata/vehicles.csv"
-
-PERTINENT_DATA = ['id', 'make', 'model', 'year', 'VClass',
-                  'pv2', 'pv4', 'hpv', 'lv2', 'lv4', 'hlv',
-                  'fuelCost08', 'fuelCostA08', 'fuelType',
-                  'co2TailpipeGpm', 'co2TailpipeAGpm']
-
-MILES_PER_HOUR = 30 #needs to be edited
-SELECT_CMD = ("SELECT co2TailpipeGpm, fuelCost08,"
-              " fuelCostA08, fuelType FROM vehicles ")
-WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
-
-
 def build_db(connection):
     '''
     Creates sqlite database file containing only the columns
@@ -61,50 +60,59 @@ def build_db(connection):
     # IMPORTANT .to_sql cannot create a table with a primary key
     df.to_sql('vehicles', con=connection, if_exists='replace')
 
-# Sub classes for prompt toolkit Validator class
 # Used as questionary parameters to reject user input
-# TODO: I'm not the most experienced with OOP so not sure
-# if this has been implemented efficiently (combine both subclasses?)
-class MakeValidator(Validator):
-    def validate(self, document):
-        '''
-        Checks if the car make being inputted is valid, does not
-        let user submit if it isn't in the local database.
+def autoc_validator(text, cursor, query):
+    '''
+    Checks if the car details being inputted are valid,
+    does not let user submit if it isn't in the local database.
 
-        Inputs: document - contains the user's input and updates over
-            time allowing for real time validation, unlike python's input()
-        '''
-        temp_conn = sqlite3.connect('cscc.db')
-        c = temp_conn.cursor()
+    Inputs:
+        text: string of the user's input, updates as it changes
+            allowing for real time validation, unlike python's input()
+        cursor: cursor object for database we will be querying
+        query: string which is checked to determine what car detail
+            to query for validation, the make or the model and year
+
+    Returns: True if valid, else raises validation error
+        (A little unorthodox vs just returning bools, but this allows
+        error msg to show up in prompt properly)
+    '''
+    if query == 'make':
         exists_query = 'SELECT EXISTS (SELECT 1 FROM vehicles WHERE make = ?)'
-        exists = c.execute(exists_query, (document.text,)).fetchone()[0]
-        if not exists:
-            raise ValidationError(
-                message="Current entry does not match database!"
-            )
-        c.close()
-        temp_conn.close()
-
-class ModelYearValidator(Validator):
-    def validate(self, document):
-        '''
-        Checks if the car model and year being inputted is valid,
-        does not let user submit if it isn't in the local database.
-
-        Inputs: document - contains the user's input and updates over
-            time allowing for real time validation, unlike python's input()
-        '''
-        temp_conn = sqlite3.connect('cscc.db')
-        c = temp_conn.cursor()
+    elif query == 'm_y':
         exists_query = ('SELECT EXISTS (SELECT 1 FROM vehicles '
                         'WHERE model || " " || year = ?)')
-        exists = c.execute(exists_query, (document.text,)).fetchone()[0]
-        if not exists:
+    exists = cursor.execute(exists_query, (text,)).fetchone()[0]
+    if not exists:
+        raise ValidationError(
+            message='Current entry does not match database!'
+        )
+
+    return True
+
+def txt_validator(text):
+    '''
+    Checks if use_miles is a non-negative number for
+    validation.
+
+    Inputs: text - string of the user's input, updates as it changes
+        allowing for real time validation, unlike python's input()
+    
+    Returns: True if valid, else raises validation error
+        (A little unorthodox vs just returning bools, but this allows
+        error msg to show up in prompt properly)
+    '''
+    try:
+        if float(text) < 0:
             raise ValidationError(
-                message="Current entry does not match database!"
+                message='Entry must be non-negative!'
             )
-        c.close()
-        temp_conn.close()
+    except ValueError:
+        raise ValidationError(
+            message='Entry must be a number!'
+        ) from ValueError
+
+    return True
 
 # WIP
 def get_user_input(cursor):
@@ -120,24 +128,33 @@ def get_user_input(cursor):
     make_query = 'SELECT DISTINCT make FROM vehicles'
     make_results = cursor.execute(make_query).fetchall()
     make_results = sorted({tup[0] for tup in make_results})
-    make_ans = questionary.autocomplete("What is your car's make?\n   ",
-                                        choices=make_results,
-                                        validate=MakeValidator,
-                                        style=custom_style, qmark='⯁ ').ask()
+    make_ans = q.autocomplete("What is your car's make?\n   ",
+                              choices=make_results,
+                              validate=(lambda text:
+                                        autoc_validator(text, cursor, 'make')),
+                              style=custom_style, qmark='⯁ ').ask()
 
     print()
     m_y_query = ('SELECT DISTINCT model || " " || year '
                  'FROM vehicles WHERE make = ?')
     m_y_results = cursor.execute(m_y_query, (make_ans,)).fetchall()
     m_y_results = sorted({tup[0] for tup in m_y_results})
-    m_y_ans = questionary.autocomplete('What about model and year?\n   ',
-                                       choices=m_y_results,
-                                       validate=ModelYearValidator,
-                                       style=custom_style, qmark='⯁ ').ask()
+    m_y_ans = q.autocomplete('What about model and year?\n   ',
+                             choices=m_y_results,
+                             validate=(lambda text:
+                                       autoc_validator(text, cursor, 'm_y')),
+                             style=custom_style, qmark='⯁ ').ask()
+    
+    print()
+    use_miles = q.text('Estimation for daily miles driven?\n   ',
+                       validate=lambda text: txt_validator(text),
+                       style=custom_style, qmark='⯁ ').ask()
     model,_ , year = m_y_ans.rpartition(' ')
     input_dict = {'make': make_ans,
-                   'model': model,
-                   'year': int(year)}
+                  'model': model,
+                  'year': int(year),
+                  'use_miles': float(use_miles)}
+    print('For debugging purposes:')
     print(input_dict)
     return input_dict
 
