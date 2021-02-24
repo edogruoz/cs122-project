@@ -16,9 +16,9 @@ Tasks:
 
 import sqlite3
 import pandas as pd
-import questionary as q
-from questionary import ValidationError
-from questionary import Style
+#import questionary as q
+#from questionary import ValidationError
+#from questionary import Style
 
 URL = "https://www.fueleconomy.gov/feg/epadata/vehicles.csv"
 
@@ -32,6 +32,8 @@ SELECT_CMD = ("SELECT co2TailpipeGpm, fuelCost08,"
               " fuelCostA08, fuelType FROM vehicles ")
 WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 
+AVG_EMISSION = 4600000
+"""
 # Style options for terminal questions
 custom_style = Style([
     ('qmark', 'fg:#A0E8AF bold'),       # token in front of the question
@@ -45,7 +47,7 @@ custom_style = Style([
     ('text', ''),                       # plain text
     ('disabled', 'fg:#858585 italic')   # disabled choices for select and checkbox prompts
 ])
-
+"""
 def build_db(connection):
     '''
     Creates sqlite database file containing only the columns
@@ -183,8 +185,31 @@ def get_emissions(input_dict, vehicles):
 def compare_emission(data):
     pass
 
-def get_recommendation(data):
-    pass
+def get_recommendation(emission, gpm):
+    rv = {}
+    if emission < AVG_EMISSION:
+        return
+    rv["percent"] = str(round((emission - AVG_EMISSION) / emission * 100, 1)) + " percent"
+    rv["per year,"] = str(round((emission - AVG_EMISSION)/gpm, 1)) + " miles"
+    rv["per month,"] = str(round((emission/12 - AVG_EMISSION/12)/gpm, 1)) + " miles"
+    rv["per week"] = str(round((emission/52 - AVG_EMISSION/52)/gpm, 1)) + " miles"
+    
+    l = ["On", "average,", "you", "should", "drive"]
+    l2 = ["less"]
+
+    for key, value in rv.items():
+        l += [value] + l2
+        if key == "percent":
+            l[-1] = "less,"
+            continue
+        l += [key]
+        if key == "per month,":
+            l += ["and"]
+    
+    s = " ".join(l)
+    s += "."
+    
+    return s
 
 def go():
     '''
