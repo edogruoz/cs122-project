@@ -16,9 +16,9 @@ Tasks:
 
 import sqlite3
 import pandas as pd
-#import questionary as q
-#from questionary import ValidationError
-#from questionary import Style
+import questionary as q
+from questionary import ValidationError
+from questionary import Style
 
 URL = "https://www.fueleconomy.gov/feg/epadata/vehicles.csv"
 
@@ -33,7 +33,7 @@ SELECT_CMD = ("SELECT co2TailpipeGpm, fuelCost08,"
 WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 
 AVG_EMISSION = 4600000
-"""
+
 # Style options for terminal questions
 custom_style = Style([
     ('qmark', 'fg:#A0E8AF bold'),       # token in front of the question
@@ -47,7 +47,7 @@ custom_style = Style([
     ('text', ''),                       # plain text
     ('disabled', 'fg:#858585 italic')   # disabled choices for select and checkbox prompts
 ])
-"""
+
 def build_db(connection):
     '''
     Creates sqlite database file containing only the columns
