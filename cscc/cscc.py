@@ -211,6 +211,59 @@ def get_recommendation(emission, gpm):
     
     return s
 
+def get_fuel_price(db, car_id, no_miles):
+    '''
+    Gives the money spent on fuel for a given car and 
+    a given number of miles
+    '''
+
+    s1 = "SELECT fuelCost08, fuelCostA08 FROM vehicles WHERE id = ?"
+
+    db = sqlite3.connect(db)
+    c = db.cursor()
+    r = c.execute(s1, car_id)
+    rv = r.fetchall()
+    db.close
+
+    fuel1_cost, fuel2_cost = rv
+
+    if fuel2_cost:
+        cost = (fuel1_cost + fuel2_cost)/2
+    else:
+        cost = fuel1_cost
+
+    return (cost/YEARLY_MILES) * no_miles
+
+def co2_emission(co2_1, co2_2, miles):
+    '''
+    Calculates co2 emissions with the given mile, 
+      to be used in sqlite
+    '''
+
+    average = (co2_1 + co2_2)/2
+    return average * miles
+
+def recommend_cars(db, input_dict, id):
+    '''
+    Determines cars to recommend that have less than 
+    average emission and qualities input by the user
+
+    '''
+    db = sqlite3.connect(db)
+    c = db.cursor()
+    db.create_function("co2_emission", 3, co2_emission)
+    miles = input_dict["use_miles"]
+
+    s1 = "SELECT id, make, model, co2TailpipeGpm, co2TailpipeAGpm, co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
+        AS co2_emission FROM vehicles WHERE co2_emission <= ? GROUP BY make, model"
+    a = c.execute(s1, AVERAGE_CO2)
+    
+    df = pd.DataFrame(a.fetchall(), columns=["id", "make", "model", "co2TailpipeGpm", "co2TailpipeAGpm", "co2TailpipeGpm"])
+
+    #to be continued
+
+
+
 def go():
     '''
     Main program, takes users input (their current
