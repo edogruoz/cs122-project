@@ -262,7 +262,6 @@ def recommend_cars(db, input_dict, id):
 
     #to be continued
 
-
 def go():
     '''
     Main program, takes users input (their current
