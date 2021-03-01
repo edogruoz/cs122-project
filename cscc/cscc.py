@@ -34,7 +34,8 @@ WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 
 AVG_EMISSION = 4600000
 AVERAGE_CO2 = ["89038.5"]   #g/week
-CAR_LIMIT = 20 #number of cars to reduce before checking prices, can lower
+CAR_LIMIT = 20 #number of cars to reduce to before checking prices, can lower
+MIN_LIMIT = 3  
 
 # Style options for terminal questions
 custom_style = Style([
@@ -258,11 +259,11 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     miles = input_dict["use_miles"]
 
     s1 = "SELECT id, make, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
-        co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
-        AS co2_emission FROM vehicles WHERE co2_emission <= ?"
+            co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
+            AS co2_emission FROM vehicles WHERE co2_emission <= ?"
     a = c.execute(s1, AVERAGE_CO2)
     
-    df = pd.DataFrame(a.fetchall(), columns=["id", "make", "pv2", "pv4", "hpv", "lv2", 
+    df = pd.DataFrame(a.fetchall(), columns=["id", "make", "pv2", "pv4", "hpv", "lv2", \
                                             "lv4", "hlv", "fuelType", "VClass", "co2_emission"])
 
     s2 = "SELECT id, make, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass FROM vehicles WHERE id = ?"
@@ -270,20 +271,19 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     old_car = c.execute(s2, [str(id)])
     car_id, car_make, car_pv2, car_pv4, car_hpv, car_lv2, car_lv4, car_hlv, car_fuelType, car_VClass = old_car.fetchall()[0]
 
+    match_dict = {"make":car_make, "VClass":car_VClass, "fuelType":car_fuelType}
+    
     for i in range(1, len(ranking_dict)+1):
         of_interest = ranking_dict[i]
-        if of_interest  == "make":
-            df = df[df["make"] == car_make]
-        elif of_interest == "VClass":
-            df = df[df["VClass"] == car_VClass]
-        elif of_interest == "fuelType":
-            df = df[df["fuelType"] == car_fuelType]
+        if of_interest  in ["make", "VClass", "fuelType"]:
+            new_df = df[df[of_interest] == match_dict[of_interest]]
         elif #to be filled for year and volume:
             #...
-        if len(df) <= CAR_LIMIT:
+        if len(new_df) <= MIN_LIMIT:  # discard the new filtering if the resulting number of cars is too small
             break
-
-    #to be continued
+        df = new_df
+        if len(df) <= CAR_LIMIT:  # break the loop if we have a small enough number of cars
+            break
 
 
 def go():
