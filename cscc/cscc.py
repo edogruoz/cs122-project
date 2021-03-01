@@ -33,6 +33,8 @@ SELECT_CMD = ("SELECT co2TailpipeGpm, fuelCost08,"
 WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 
 AVG_EMISSION = 4600000
+AVERAGE_CO2 = ["89038.5"]   #g/week
+CAR_LIMIT = 20 #number of cars to reduce before checking prices, can lower
 
 # Style options for terminal questions
 custom_style = Style([
@@ -243,22 +245,43 @@ def co2_emission(co2_1, co2_2, miles):
     average = (co2_1 + co2_2)/2
     return average * miles
 
-def recommend_cars(db, input_dict, id):
+def recommend_cars(db, input_dict, ranking_dict, id):
     '''
     Determines cars to recommend that have less than 
     average emission and qualities input by the user
 
     '''
+
     db = sqlite3.connect(db)
     c = db.cursor()
     db.create_function("co2_emission", 3, co2_emission)
     miles = input_dict["use_miles"]
 
-    s1 = "SELECT id, make, model, co2TailpipeGpm, co2TailpipeAGpm, co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
-        AS co2_emission FROM vehicles WHERE co2_emission <= ? GROUP BY make, model"
+    s1 = "SELECT id, make, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
+        co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
+        AS co2_emission FROM vehicles WHERE co2_emission <= ?"
     a = c.execute(s1, AVERAGE_CO2)
     
-    df = pd.DataFrame(a.fetchall(), columns=["id", "make", "model", "co2TailpipeGpm", "co2TailpipeAGpm", "co2TailpipeGpm"])
+    df = pd.DataFrame(a.fetchall(), columns=["id", "make", "pv2", "pv4", "hpv", "lv2", 
+                                            "lv4", "hlv", "fuelType", "VClass", "co2_emission"])
+
+    s2 = "SELECT id, make, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass FROM vehicles WHERE id = ?"
+
+    old_car = c.execute(s2, [str(id)])
+    car_id, car_make, car_pv2, car_pv4, car_hpv, car_lv2, car_lv4, car_hlv, car_fuelType, car_VClass = old_car.fetchall()[0]
+
+    for i in range(1, len(ranking_dict)+1):
+        of_interest = ranking_dict[i]
+        if of_interest  == "make":
+            df = df[df["make"] == car_make]
+        elif of_interest == "VClass":
+            df = df[df["VClass"] == car_VClass]
+        elif of_interest == "fuelType":
+            df = df[df["fuelType"] == car_fuelType]
+        elif #to be filled for year and volume:
+            #...
+        if len(df) <= CAR_LIMIT:
+            break
 
     #to be continued
 
