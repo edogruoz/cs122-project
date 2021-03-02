@@ -9,12 +9,13 @@ Tasks:
     write code that takes in model and use, and returns emission + spending
     write code that compares emission with average and gives rec for hours to
         cut down
-    write code to rec. (alternative cars OR public transport) and gives info 
+    write code to rec. (alternative cars OR public transport) and gives info
         about savings
     translate the written code to user interface
 """
 
 import sqlite3
+from sqlite3.dbapi2 import Error
 import pandas as pd
 import questionary as q
 from questionary import ValidationError
@@ -35,7 +36,7 @@ WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 AVG_EMISSION = 4600000
 AVERAGE_CO2 = ["89038.5"]   #g/week
 CAR_LIMIT = 20 #number of cars to reduce to before checking prices, can lower
-MIN_LIMIT = 3  
+MIN_LIMIT = 3
 
 # Style options for terminal questions
 custom_style = Style([
@@ -102,7 +103,7 @@ def txt_validator(text):
 
     Inputs: text - string of the user's input, updates as it changes
         allowing for real time validation, unlike python's input()
-    
+
     Returns: True if valid, else raises validation error
         (A little unorthodox vs just returning bools, but this allows
         error msg to show up in prompt properly)
@@ -149,9 +150,9 @@ def get_user_input(cursor):
                              validate=(lambda text:
                                        autoc_validator(text, cursor, 'm_y')),
                              style=custom_style, qmark='⯁ ').ask()
-    
+
     print()
-    use_miles = q.text('Estimation for daily miles driven?\n   ',
+    use_miles = q.text('Estimation for weekly miles driven?\n   ',
                        validate=lambda text: txt_validator(text),
                        style=custom_style, qmark='⯁ ').ask()
     model,_ , year = m_y_ans.rpartition(' ')
@@ -164,18 +165,18 @@ def get_user_input(cursor):
     return input_dict
 
 def get_emissions(input_dict, vehicles):
-    model = input_dict["model"]
     make = input_dict["make"]
+    model = input_dict["model"]
     year = input_dict["year"]
-    array = [model, make, year]
+    array = [make, model, year]
 
     if input_dict["use_miles"]:
         use = input_dict["use_miles"]
     else:
         use = input_dict["use_hours"]
         use = MILES_PER_HOUR * use
-    
-    s = SELECT_CMD + WHERE_CMD
+
+    s = "SELECT co2TailpipeGpm, co2TailpipeAGpm FROM vehicles " + WHERE_CMD
 
     db = sqlite3.connect(vehicles)
     c = db.cursor()
@@ -183,7 +184,18 @@ def get_emissions(input_dict, vehicles):
     rv = r.fetchall()
     db.close
 
-    #to be continued
+    if rv:
+        gpm, agpm = rv[0]
+        if agpm == 0:
+            weekly_emission = gpm * use
+        else:
+            weekly_emission = ((gpm + agpm) / 2) * use
+        yearly_emission = weekly_emission * 52
+        return yearly_emission
+
+    # Raise error as there was nothing returned from the db
+    raise Error('No emission data found in the database for the given make and model.')
+
 
 def compare_emission(data):
     pass
@@ -196,7 +208,7 @@ def get_recommendation(emission, gpm):
     rv["per year,"] = str(round((emission - AVG_EMISSION)/gpm, 1)) + " miles"
     rv["per month,"] = str(round((emission/12 - AVG_EMISSION/12)/gpm, 1)) + " miles"
     rv["per week"] = str(round((emission/52 - AVG_EMISSION/52)/gpm, 1)) + " miles"
-    
+
     l = ["On", "average,", "you", "should", "drive"]
     l2 = ["less"]
 
@@ -208,15 +220,15 @@ def get_recommendation(emission, gpm):
         l += [key]
         if key == "per month,":
             l += ["and"]
-    
+
     s = " ".join(l)
     s += "."
-    
+
     return s
 
 def get_fuel_price(db, car_id, no_miles):
     '''
-    Gives the money spent on fuel for a given car and 
+    Gives the money spent on fuel for a given car and
     a given number of miles
     '''
 
@@ -231,24 +243,24 @@ def get_fuel_price(db, car_id, no_miles):
     fuel1_cost, fuel2_cost = rv
 
     if fuel2_cost:
-        cost = (fuel1_cost + fuel2_cost)/2
+        cost = (fuel1_cost + fuel2_cost) / 2
     else:
         cost = fuel1_cost
 
-    return (cost/YEARLY_MILES) * no_miles
+    return (cost / YEARLY_MILES) * no_miles
 
 def co2_emission(co2_1, co2_2, miles):
     '''
-    Calculates co2 emissions with the given mile, 
+    Calculates co2 emissions with the given mile,
       to be used in sqlite
     '''
 
-    average = (co2_1 + co2_2)/2
+    average = (co2_1 + co2_2) / 2
     return average * miles
 
 def recommend_cars(db, input_dict, ranking_dict, id):
     '''
-    Determines cars to recommend that have less than 
+    Determines cars to recommend that have less than
     average emission and qualities input by the user
 
     '''
@@ -262,7 +274,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
             co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
             AS co2_emission FROM vehicles WHERE co2_emission <= ?"
     a = c.execute(s1, AVERAGE_CO2)
-    
+
     df = pd.DataFrame(a.fetchall(), columns=["id", "make", "pv2", "pv4", "hpv", "lv2", \
                                             "lv4", "hlv", "fuelType", "VClass", "co2_emission"])
 
@@ -272,7 +284,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     car_id, car_make, car_pv2, car_pv4, car_hpv, car_lv2, car_lv4, car_hlv, car_fuelType, car_VClass = old_car.fetchall()[0]
 
     match_dict = {"make":car_make, "VClass":car_VClass, "fuelType":car_fuelType}
-    
+
     for i in range(1, len(ranking_dict)+1):
         of_interest = ranking_dict[i]
         if of_interest  in ["make", "VClass", "fuelType"]:
@@ -306,7 +318,12 @@ def go():
         conn = sqlite3.connect('cscc.db')
         build_db(conn)
     cursor = conn.cursor()
-    get_user_input(cursor)
+    input = get_user_input(cursor)
+
+    # Calculate and print the emissions for debugging
+    emissions = get_emissions(input, 'cscc.db')
+    print('Yearly CO2 emission: ' + str(emissions) + ' grams.')
+
     cursor.close()
     conn.close()
 
