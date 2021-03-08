@@ -24,6 +24,7 @@ import re
 import urllib3
 import bs4
 import certifi
+import io
 
 URL = "https://www.fueleconomy.gov/feg/epadata/vehicles.csv"
 
@@ -402,13 +403,19 @@ def recommend_cars(db, input_dict, ranking_dict, id):
              - 5) & (df[of_interest] <= match_dict[of_interest] + 5)]
         else:
             if of_interest == "luggage_volume": #choosing the max for comparison to ignore entries of 0
+                df = process_df(df, "lv")
+                ind = df[df["id"] == id].index.values.astype(int)[0]
+                car_lv = df.iloc[ind][["lv4", "lv2", "hlv"]].max().item()
                 new_df = df[(df[["lv4", "hlv", "lv2"]].max(axis=1) >= 
-                match_dict[of_interest] * 0.95) & (df[["lv4", "hlv", "lv2"]
-                ].max(axis=1) <= match_dict[of_interest] * 1.05)]
+                car_lv * 0.95) & (df[["lv4", "hlv", "lv2"]
+                ].max(axis=1) <= car_lv * 1.05)]
             else:
+                df = process_df(df, "pv")
+                ind = df[df["id"] == id].index.values.astype(int)[0]
+                car_pv = df.iloc[ind][["pv4", "pv2", "hpv"]].max().item()
                 new_df = df[(df[["pv4", "hpv", "pv2"]].max(axis=1) >= 
-                match_dict[of_interest] * 0.95) & (df[["pv4", "hpv", "pv2"]
-                ].max(axis=1) <= match_dict[of_interest] * 1.05)]
+                car_pv * 0.95) & (df[["pv4", "hpv", "pv2"]
+                ].max(axis=1) <= car_pv * 1.05)]
         if len(new_df) <= MIN_LIMIT:  # discard the new filtering if the resulting number of cars is too small
             continue
         df = new_df
@@ -416,6 +423,66 @@ def recommend_cars(db, input_dict, ranking_dict, id):
             break
     
     return df
+
+
+def process_df(df, type_):
+    '''
+    Given a df, fill rows with no volume info with info from cars
+    of the same model
+    '''
+    if type_ == "pv":
+        missing_pv = df[df[["pv2", "pv4", "hpv"]].max(axis=1) == 0]
+        df = helper_process_df(df, missing_pv, "pv")
+    else:
+        missing_lv = df[df[["lv2", "lv4", "hlv"]].max(axis=1) == 0]
+        df = helper_process_df(df, missing_lv, "lv")
+    
+    return df
+
+
+def helper_process_df(df, df2, type_):
+    '''
+    Helper function for process_df
+    '''
+    if type_ == "pv":
+        cols = ["pv2", "pv4", "hpv"]
+    else:
+        cols = ["lv2", "lv4", "hlv"]
+
+    df["first_word"] = pd.read_table(io.StringIO(df["model"].to_csv(None,
+        index=None)), sep=" ", usecols=[0])
+
+    count = 0
+
+    for _, row in df2.iterrows():
+        id = row["id"]
+        make = row["make"]
+        model = row["model"]
+        model_str = model.split()[0]
+        year = row["year"]
+        
+        alternatives = df[(df["make"] == make) & (df["first_word"] == model_str
+            ) & (df["year"].between(year - 4, year + 4)) & (df["id"] != id) & (
+            df[cols].max(axis=1) > 0)]
+
+        if len(alternatives) == 0:
+            continue
+
+        for col in cols:
+            series = alternatives[(alternatives[col] > 0)][col].dropna()
+            if not len(series):
+                continue
+            avg = series.mean().item()
+            ind = df[df["id"] == id].index.values.astype(int)[0]
+            df.at[ind, col] = avg
+            count += 1
+   
+    print("COUNT:", count)
+
+    df.drop(["first_word"], axis=1)
+
+    return df
+
 
 def get_info_for_price(data_str):
     '''
