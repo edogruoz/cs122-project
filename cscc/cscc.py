@@ -394,6 +394,11 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     match_dict = {"make":car_make, "VClass":car_VClass, \
         "fuelType":car_fuelType, "year": year, "luggage_volume": car_lv, "passenger_volume": car_pv}
 
+    car_dict = {"id":car_id, "make":car_make,"model"car_model, "pv2": car_pv2, "pv4":car_pv4,"hpv":car_hpv,\
+        "lv2":car_lv2, "lv4":car_lv4, "hlv":car_hlv, "fuelType":car_fuelType, "VClass":car_VClass, "year":year}
+
+    df = car_df.append(car_dict, ignore_index=True) #important for the price function for this to be the LAST row
+    
     for i in range(1, len(ranking_dict)+1):
         of_interest = ranking_dict[i]
         if of_interest  in ["make", "VClass", "fuelType"]:
@@ -516,10 +521,6 @@ def get_car_prices(car_df, input_dict):
         old_car_price: price of the user's own car, None if not found
     '''
     
-    car_dict = {"id":input_dict["id"], "make":input_dict["make"],\
-         "model":input_dict["model"], "year":input_dict["year"]}
-
-    new_df = car_df.append(car_dict, ignore_index=True) 
 
     pm = urllib3.PoolManager(
        cert_reqs='CERT_REQUIRED',
@@ -529,7 +530,7 @@ def get_car_prices(car_df, input_dict):
     no_price_found = {}
     old_car_price = None
 
-    for i, row in new_df.iterrows():
+    for i, row in car_df.iterrows():
         make, possible_models, year = get_info_for_price(row)
         if year < 1992 and i != len(new_df) - 1:
             no_price_found[row["id"]] = (make, model, year)
