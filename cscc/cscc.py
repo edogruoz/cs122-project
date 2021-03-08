@@ -345,12 +345,16 @@ def get_fuel_price(db, car_id, no_miles):
 
 def co2_emission(co2_1, co2_2, miles):
     '''
-    Calculates co2 emissions with the given mile,
+    Calculates co2 emissions with the given mile, 
       to be used in sqlite
     '''
 
-    average = (co2_1 + co2_2) / 2
-    return average * miles
+    if co2_2 != 0:
+        co2 = (co2_1 + co2_2)/2
+    else:
+        co2 = co2_1
+    
+    return co2 * miles
 
 def recommend_cars(db, input_dict, ranking_dict, id):
     '''
@@ -364,24 +368,26 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     db.create_function("co2_emission", 3, co2_emission)
     miles = input_dict["use_miles"]
 
-    s1 = "SELECT id, make, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
+    s1 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
             co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
             AS co2_emission, year FROM vehicles WHERE co2_emission <= ?"
             
     a = c.execute(s1, AVERAGE_CO2)
 
-    df = pd.DataFrame(a.fetchall(), columns=["id", "make", "pv2", "pv4", "hpv", "lv2", \
+    df = pd.DataFrame(a.fetchall(), columns=["id", "make","model", "pv2", "pv4", "hpv", "lv2", \
                                             "lv4", "hlv", "fuelType", "VClass", "co2_emission", "year"])
     print(df)
-    s2 = "SELECT id, make, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year FROM vehicles WHERE id = ?"
+    s2 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year FROM vehicles WHERE id = ?"
 
     old_car = c.execute(s2, [str(id)])
-    car_id, car_make, car_pv2, car_pv4, car_hpv, car_lv2, car_lv4, car_hlv, car_fuelType, car_VClass, year = old_car.fetchall()[0]
+    car_id, car_make, car_model, car_pv2, car_pv4, car_hpv, \
+        car_lv2, car_lv4, car_hlv, car_fuelType, car_VClass, year = old_car.fetchall()[0]
 
     car_lv = max(car_lv4, car_hlv, car_lv2) #taking the max since some will have 0 as entries
     car_pv = max(car_pv2, car_pv4, car_hpv)
 
-    match_dict = {"make":car_make, "VClass":car_VClass, "fuelType":car_fuelType, "year": year, "luggage_volume": car_lv, "passenger_volume": car_pv}
+    match_dict = {"make":car_make, "VClass":car_VClass, \
+        "fuelType":car_fuelType, "year": year, "luggage_volume": car_lv, "passenger_volume": car_pv}
 
     for i in range(1, len(ranking_dict)+1):
         of_interest = ranking_dict[i]
@@ -400,12 +406,82 @@ def recommend_cars(db, input_dict, ranking_dict, id):
                 match_dict[of_interest] * 0.95) & (df[["pv4", "hpv", "pv2"]
                 ].max(axis=1) <= match_dict[of_interest] * 1.05)]
         if len(new_df) <= MIN_LIMIT:  # discard the new filtering if the resulting number of cars is too small
-            break
+            continue
         df = new_df
         if len(df) <= CAR_LIMIT:  # break the loop if we have a small enough number of cars
             break
     
     return df
+
+def get_info_for_price(data_str):
+    '''
+    data_str: dictionary or pandas df row
+    '''
+    make = data_str["make"]
+    model_lst = data_str["model"].split()
+    possible_models = ["-".join(model_lst).lower(), model_lst[0].lower()]
+    if len(model_lst) >= 2:
+            possible_models +=  ["-".join(model_lst[:2]).lower()]
+    year = data_str["year"]
+
+    return make, possible_models, year
+
+
+def get_car_prices(car_df, input_dict):
+    '''
+    Crawls prices for the recommended cars and the user's car
+      from kbb. 
+    
+    Inputs:
+        car_df (pd.DataFrame): dataframe of cars to be recommended
+        input_dict
+    
+    Returns:
+        price_dict (dict): a dictionary with car id as the key and a 
+          tuple of (make, model, year, price) as the value
+        no_price_found (dict): a dictionary with car id as the key and a 
+          tuple of (make, model, year) as the value for cars whose 
+          prices could not be found in kbb
+        old_car_price: price of the user's own car, None if not found
+    '''
+    
+    car_dict = {"id":input_dict["id"], "make":input_dict["make"],\
+         "model":input_dict["model"], "year":input_dict["year"]}
+
+    new_df = car_df.append(car_dict, ignore_index=True) 
+
+    pm = urllib3.PoolManager(
+       cert_reqs='CERT_REQUIRED',
+       ca_certs=certifi.where())
+    
+    price_dict = {}
+    no_price_found = {}
+    old_car_price = None
+
+    for i, row in new_df.iterrows():
+        make, possible_models, year = get_info_for_price(row)
+        if year < 1992 and i != len(new_df) - 1:
+            no_price_found[row["id"]] = (make, model, year)
+            continue
+        for i, model in enumerate(possible_models):
+            myurl = "https://www.kbb.com/{}/{}/{}/".format(make, model, year)
+            html = pm.urlopen(url=myurl, method="GET").data
+            soup = bs4.BeautifulSoup(html, features="html.parser")
+            title = soup.find_all("title")[0].text
+            if ("Find Your Perfect Car" not in title) and ("Kelley Blue Book | Error" not in title):  #these indicate that there was no exact match
+                break
+        if ("Find Your Perfect Car" in title) or ("Kelley Blue Book | Error" in title) or (str(year) not in title):
+            no_price_found[row["id"]] = (make, model, year)
+            continue
+        price_text = soup.find_all("script", attrs={"data-rh":"true"})[-1].text
+        m =  re.findall('"price":"([0-9]+)"', price_text)[0]
+        if i == len(new_df) - 1:
+            old_car_price = m 
+        else:
+            price_dict[row["id"]] = (make, model, year, m) 
+    
+    return price_dict, no_price_found, old_car_price
+
 
 def go():
     '''
