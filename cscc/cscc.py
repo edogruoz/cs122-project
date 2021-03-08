@@ -20,6 +20,10 @@ import pandas as pd
 import questionary as q
 from questionary import ValidationError
 from questionary import Style
+import re
+import urllib3
+import bs4
+import certifi
 
 URL = "https://www.fueleconomy.gov/feg/epadata/vehicles.csv"
 
@@ -376,7 +380,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
 
     df = pd.DataFrame(a.fetchall(), columns=["id", "make","model", "pv2", "pv4", "hpv", "lv2", \
                                             "lv4", "hlv", "fuelType", "VClass", "co2_emission", "year"])
-    print(df)
+
     s2 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year FROM vehicles WHERE id = ?"
 
     old_car = c.execute(s2, [str(id)])
