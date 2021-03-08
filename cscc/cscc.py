@@ -367,7 +367,6 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     average emission and qualities input by the user
 
     '''
-
     db = sqlite3.connect(db)
     c = db.cursor()
     db.create_function("co2_emission", 3, co2_emission)
@@ -376,6 +375,9 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     s1 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
             co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
             AS co2_emission, year FROM vehicles WHERE co2_emission <= ?"
+    
+    alt_s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
+             year FROM vehicles" #to be potentially used later 
             
     a = c.execute(s1, AVERAGE_CO2)
 
@@ -394,10 +396,10 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     match_dict = {"make":car_make, "VClass":car_VClass, \
         "fuelType":car_fuelType, "year": year, "luggage_volume": car_lv, "passenger_volume": car_pv}
 
-    car_dict = {"id":car_id, "make":car_make,"model"car_model, "pv2": car_pv2, "pv4":car_pv4,"hpv":car_hpv,\
+    car_dict = {"id":car_id, "make":car_make,"model": car_model, "pv2": car_pv2, "pv4":car_pv4,"hpv":car_hpv,\
         "lv2":car_lv2, "lv4":car_lv4, "hlv":car_hlv, "fuelType":car_fuelType, "VClass":car_VClass, "year":year}
 
-    df = car_df.append(car_dict, ignore_index=True) #important for the price function for this to be the LAST row
+    df = df.append(car_dict, ignore_index=True) #important for the price function for this to be the LAST row
     
     for i in range(1, len(ranking_dict)+1):
         of_interest = ranking_dict[i]
@@ -408,16 +410,20 @@ def recommend_cars(db, input_dict, ranking_dict, id):
              - 5) & (df[of_interest] <= match_dict[of_interest] + 5)]
         else:
             if of_interest == "luggage_volume": #choosing the max for comparison to ignore entries of 0
+                if car_lv == 0:
+                    car_lv = get_volume(c, alt_s, id, "lv")
+                if car_lv == 0:
+                    continue
                 df = process_df(df, "lv")
-                ind = df[df["id"] == id].index.values.astype(int)[0]
-                car_lv = df.iloc[ind][["lv4", "lv2", "hlv"]].max().item()
                 new_df = df[(df[["lv4", "hlv", "lv2"]].max(axis=1) >= 
                 car_lv * 0.95) & (df[["lv4", "hlv", "lv2"]
                 ].max(axis=1) <= car_lv * 1.05)]
             else:
+                if car_pv == 0:
+                    car_pv = get_volume(c, alt_s, id, "pv")
+                if car_pv == 0:
+                    continue
                 df = process_df(df, "pv")
-                ind = df[df["id"] == id].index.values.astype(int)[0]
-                car_pv = df.iloc[ind][["pv4", "pv2", "hpv"]].max().item()
                 new_df = df[(df[["pv4", "hpv", "pv2"]].max(axis=1) >= 
                 car_pv * 0.95) & (df[["pv4", "hpv", "pv2"]
                 ].max(axis=1) <= car_pv * 1.05)]
@@ -430,16 +436,40 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     return df
 
 
-def process_df(df, type_):
+def get_volume(cursor, string, id, type_):
+    '''
+    Get luggage or passenger volume of the input car if it is missing
+    '''
+    if type_ == "lv":
+        lst = ["lv2", "lv4", "hlv"]
+    else:
+        lst = ["pv2", "pv4", "hpv"]
+
+    b = cursor.execute(string)
+    new_df = pd.DataFrame(b.fetchall(), columns = ["id", "make",
+        "model", "pv2", "pv4", "hpv", "lv2", "lv4", "hlv", 
+        "fuelType", "VClass", "year"])
+    row = new_df[new_df["id"] == id]
+    new_df = process_df(new_df, type_, row)
+    new_row = new_df[new_df["id"] == id]
+    car_v = new_row[lst].max(axis=1).item()
+
+    return car_v
+
+
+def process_df(df, type_, df2=False):
     '''
     Given a df, fill rows with no volume info with info from cars
     of the same model
     '''
+    if isinstance(df2, bool):
+        df2 = df
+
     if type_ == "pv":
-        missing_pv = df[df[["pv2", "pv4", "hpv"]].max(axis=1) == 0]
+        missing_pv = df2[df2[["pv2", "pv4", "hpv"]].max(axis=1) == 0]
         df = helper_process_df(df, missing_pv, "pv")
-    else:
-        missing_lv = df[df[["lv2", "lv4", "hlv"]].max(axis=1) == 0]
+    elif type_ == "lv":
+        missing_lv = df2[df2[["lv2", "lv4", "hlv"]].max(axis=1) == 0]
         df = helper_process_df(df, missing_lv, "lv")
     
     return df
@@ -456,8 +486,6 @@ def helper_process_df(df, df2, type_):
 
     df["first_word"] = pd.read_table(io.StringIO(df["model"].to_csv(None,
         index=None)), sep=" ", usecols=[0])
-
-    count = 0
 
     for _, row in df2.iterrows():
         id = row["id"]
@@ -480,11 +508,8 @@ def helper_process_df(df, df2, type_):
             avg = series.mean().item()
             ind = df[df["id"] == id].index.values.astype(int)[0]
             df.at[ind, col] = avg
-            count += 1
-   
-    print("COUNT:", count)
 
-    df.drop(["first_word"], axis=1)
+    df = df.drop(["first_word"], axis=1)
 
     return df
 
