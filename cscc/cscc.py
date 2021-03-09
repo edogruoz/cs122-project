@@ -4,16 +4,6 @@
 #
 # Efe Dogruoz, Ebru Ermis, Mey Abdullahoglu, Kevin Ramirez
 
-"""
-Tasks:
-    write code that takes in model and use, and returns emission + spending
-    write code that compares emission with average and gives rec for hours to
-        cut down
-    write code to rec. (alternative cars OR public transport) and gives info
-        about savings
-    translate the written code to user interface
-"""
-
 import sqlite3
 from sqlite3.dbapi2 import Error
 import pandas as pd
@@ -41,6 +31,7 @@ AVG_EMISSION = 4600000
 AVERAGE_CO2 = [89038.5]   #g/week
 CAR_LIMIT = 20 #number of cars to reduce to before checking prices, can lower
 MIN_LIMIT = 3
+YEARLY_MILES = 15000
 
 # Style options for terminal questions
 q_style = Style([
@@ -68,6 +59,7 @@ alert_style = Style([
     ('text', ''),                       # plain text
     ('disabled', 'fg:#858585 italic')   # disabled choices for select and checkbox prompts
 ])
+
 
 def build_db(connection):
     '''
@@ -113,6 +105,7 @@ def autoc_validator(text, cursor, query):
 
     return True
 
+
 def txt_validator(text):
     '''
     Checks if use_miles is a non-negative number for
@@ -136,6 +129,7 @@ def txt_validator(text):
         ) from ValueError
 
     return True
+
 
 def unique_helper(cursor, col_str, param_tup, add=('', ())):
     '''
@@ -240,6 +234,7 @@ def get_user_input(conn):
 
     return input_dict
 
+
 def rank_pref(conn, input_dict):
     '''
     '''
@@ -262,6 +257,7 @@ def rank_pref(conn, input_dict):
         ranking_dict[i] = CHOICES[0]
 
     return ranking_dict
+
 
 def get_emissions(input_dict, vehicles):
     make = input_dict["make"]
@@ -296,9 +292,6 @@ def get_emissions(input_dict, vehicles):
     raise Error('No emission data found in the database for the given make and model.')
 
 
-def compare_emission(data):
-    pass
-
 def get_recommendation(emission, gpm):
     rv = {}
     if emission < AVG_EMISSION:
@@ -325,6 +318,7 @@ def get_recommendation(emission, gpm):
 
     return s
 
+
 def get_fuel_price(db, car_id, no_miles):
     '''
     Gives the money spent on fuel for a given car and
@@ -348,6 +342,7 @@ def get_fuel_price(db, car_id, no_miles):
 
     return (cost / YEARLY_MILES) * no_miles
 
+
 def co2_emission(co2_1, co2_2, miles):
     '''
     Calculates co2 emissions with the given mile, 
@@ -360,6 +355,7 @@ def co2_emission(co2_1, co2_2, miles):
         co2 = co2_1
     
     return co2 * miles
+
 
 def recommend_cars(db, input_dict, ranking_dict, id):
     '''
@@ -381,8 +377,9 @@ def recommend_cars(db, input_dict, ranking_dict, id):
             
     a = c.execute(s1, AVERAGE_CO2)
 
-    df = pd.DataFrame(a.fetchall(), columns=["id", "make","model", "pv2", "pv4", "hpv", "lv2", \
-                                            "lv4", "hlv", "fuelType", "VClass", "co2_emission", "year"])
+    df = pd.DataFrame(a.fetchall(), columns=["id", "make","model", "pv2", \
+        "pv4", "hpv", "lv2", "lv4", "hlv", "fuelType", "VClass", \
+        "co2_emission", "year"])
 
     s2 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year FROM vehicles WHERE id = ?"
 
@@ -394,10 +391,13 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     car_pv = max(car_pv2, car_pv4, car_hpv)
 
     match_dict = {"make":car_make, "VClass":car_VClass, \
-        "fuelType":car_fuelType, "year": year, "luggage_volume": car_lv, "passenger_volume": car_pv}
+        "fuelType":car_fuelType, "year": year, "luggage_volume": car_lv, \
+        "passenger_volume": car_pv}
 
-    car_dict = {"id":car_id, "make":car_make,"model": car_model, "pv2": car_pv2, "pv4":car_pv4,"hpv":car_hpv,\
-        "lv2":car_lv2, "lv4":car_lv4, "hlv":car_hlv, "fuelType":car_fuelType, "VClass":car_VClass, "year":year}
+    car_dict = {"id":car_id, "make":car_make,"model": car_model, \
+        "pv2": car_pv2, "pv4":car_pv4,"hpv":car_hpv,\
+        "lv2":car_lv2, "lv4":car_lv4, "hlv":car_hlv, \
+        "fuelType":car_fuelType, "VClass":car_VClass, "year":year}
 
     df = df.append(car_dict, ignore_index=True) #important for the price function for this to be the LAST row
     
@@ -433,6 +433,9 @@ def recommend_cars(db, input_dict, ranking_dict, id):
         if len(df) <= CAR_LIMIT:  # break the loop if we have a small enough number of cars
             break
     
+    if len(df) > 20:
+        df = df.sample(n=20)
+
     return df
 
 
