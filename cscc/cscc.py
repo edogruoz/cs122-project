@@ -34,7 +34,7 @@ MIN_LIMIT = 3
 YEARLY_MILES = 15000
 
 # Style options for terminal questions
-q_style = Style([
+S_CONFIG = [
     ('qmark', 'fg:#A0E8AF'),            # token in front of the question
     ('question', 'fg:#EDEAD0 bold'),    # question text
     ('answer', 'fg:#27BB6F bold'),      # submitted answer text behind the question
@@ -45,20 +45,7 @@ q_style = Style([
     ('instruction', ''),                # user instructions for select, rawselect, checkbox
     ('text', ''),                       # plain text
     ('disabled', 'fg:#858585 italic')   # disabled choices for select and checkbox prompts
-])
-
-alert_style = Style([
-    ('qmark', 'fg:#CF5050'),            # token in front of the question
-    ('question', 'fg:#EDEAD0 bold'),    # question text
-    ('answer', 'fg:#27BB6F bold'),      # submitted answer text behind the question
-    ('pointer', 'fg:#673ab7 bold'),     # pointer used in select and checkbox prompts
-    ('highlighted', 'fg:#673ab7 bold'), # pointed-at choice in select and checkbox prompts
-    ('selected', 'fg:#EDEAD0'),         # style for a selected item of a checkbox
-    ('separator', 'fg:#cc5454'),        # separator in lists
-    ('instruction', ''),                # user instructions for select, rawselect, checkbox
-    ('text', ''),                       # plain text
-    ('disabled', 'fg:#858585 italic')   # disabled choices for select and checkbox prompts
-])
+]
 
 
 def build_db(connection):
@@ -162,7 +149,7 @@ def get_user_input(conn):
                               choices=make_results,
                               validate=(lambda text:
                                         autoc_validator(text, cursor, 'make')),
-                              style=q_style, qmark='⯁ ').ask()
+                              style=Style(S_CONFIG), qmark='⯁ ').ask()
 
     m_y_query = ('SELECT DISTINCT model || " " || year '
                  'FROM vehicles WHERE make = ?')
@@ -172,60 +159,74 @@ def get_user_input(conn):
                              choices=m_y_results,
                              validate=(lambda text:
                                        autoc_validator(text, cursor, 'm_y')),
-                             style=q_style, qmark='\n⯁ ').ask()
+                             style=Style(S_CONFIG), qmark='\n⯁ ').ask()
     model,_ , year = m_y_ans.rpartition(' ')
 
     ans_tup = (make_ans, model, int(year))
-    uniq, id_lst = unique_helper(cursor, 'id', ans_tup)
-    id_ = id_lst[0]
+    uniq, _ = unique_helper(cursor, 'id', ans_tup)
     c_msg = ('Your particular car has some variants, would you like to be '
              'more specific?\n   You may be prompted to choose transmission, '
-             ' number of cylinders, or drive type.\n   Recommended only if you '
+             'number of cylinders, or drive type.\n   Recommended only if you '
              'are comfortable with these more advanced options.\n   '
              '(Skipping defaults to No.)\n   ')
-    advanced = q.confirm(c_msg, default=False, style=alert_style,
+    advanced = q.confirm(c_msg, default=False, style=Style(S_CONFIG + [('qmark', 'fg:#CF5050')]),
                          qmark='\n❗').skip_if(uniq).ask()
 
+    trans = ''
+    cyl = ''
+    drive = ''
     if advanced:
         t_uniq, t_results = unique_helper(cursor, 'trany', ans_tup)
         t_ans = q.select("Which matches your car's transmission?\n   ",
-                         choices=sorted(t_results) + ['Not Sure'], style=q_style,
+                         choices=sorted(t_results) + ['Not Sure'], style=Style(S_CONFIG),
                          qmark='\n⯁ ').skip_if(t_uniq).ask()
 
         if t_ans in ['Not Sure', None]:
-            trans, t_ans = '', ()
+            t_ans = ()
         else:
             trans, t_ans = ' AND trany = ?', (t_ans,)
         c_uniq, c_results = unique_helper(cursor, 'cylinders', ans_tup, (trans, t_ans))
         c_ans = q.select("Which matches your car's cylinder count?\n   ",
-                         choices=sorted(c_results) + ['Not Sure'], style=q_style,
+                         choices=sorted(c_results) + ['Not Sure'], style=Style(S_CONFIG),
                          qmark='\n⯁ ').skip_if(c_uniq).ask()
 
         if c_ans in ['Not Sure', None]:
-            cyl, c_ans = '', ()
+            c_ans = ()
         else:
             cyl, c_ans = ' AND cylinders = ?', (c_ans,)
         d_uniq, d_results = unique_helper(cursor, 'drive', ans_tup, (trans + cyl, t_ans + c_ans))
         d_ans = q.select("Which matches your car's drive type?\n   ",
-                         choices=sorted(d_results) + ['Not Sure'], style=q_style,
+                         choices=sorted(d_results) + ['Not Sure'], style=Style(S_CONFIG),
                          qmark='\n⯁ ').skip_if(d_uniq).ask()
 
         if d_ans in ['Not Sure', None]:
-            drive, d_ans = '', ()
+            d_ans = ()
         else:
             drive, d_ans = ' AND drive = ?', (d_ans,)
-        
-        id_query = 'SELECT id FROM vehicles ' + WHERE_CMD + trans + cyl + drive
-        id_ = cursor.execute(id_query, ans_tup + t_ans + c_ans + d_ans).fetchone()
+    else:
+        t_ans = ()
+        c_ans = ()
+        d_ans = ()
 
-    input_dict = {'id': id_,
+    vol_cmd = ' AND (pv2 != 0'
+    for vol in DATA_COLS[9:14]:
+        vol_cmd += f' OR {vol} != 0'
+    vol_cmd += ')'
+    id_query = 'SELECT id FROM vehicles ' + WHERE_CMD + trans + cyl + drive + vol_cmd
+    id_ = cursor.execute(id_query, ans_tup + t_ans + c_ans + d_ans).fetchone()
+    #print(id_query)
+
+    input_dict = {'id': id_[0],
                   'make': make_ans,
                   'model': model,
-                  'year': int(year)}
+                  'year': int(year),
+                  }
+    if t_ans:
+        input_dict['trany'] = t_ans[0].partition(' ')[0]
 
     use_miles = q.text('Estimation for weekly miles driven?\n   ',
                        validate=lambda text: txt_validator(text),
-                       style=q_style, qmark='\n⯁ ').ask()
+                       style=Style(S_CONFIG), qmark='\n⯁ ').ask()
     
     input_dict['use_miles'] = float(use_miles)
     print('For debugging purposes:')
@@ -239,15 +240,18 @@ def rank_pref(conn, input_dict):
     '''
     '''
     CHOICES = ['Make', 'Year', 'Vehicle Class', 'Fuel Type',  'Passenger capacity', 'Luggage Capacity', 'Stop Ranking']
-    print('We will now ask you to rank which attributes you like most about your current car.\n'
-          'These choices will be taken into consideration for car recommendation.\n'
-          "You may rank until you feel you have no more preferences or until you've exhausted all options.")
+    if input_dict.get('trany'):
+        CHOICES.insert(2, 'Transmission')
+    q.print('We will now ask you to rank which attributes you like most about your current car.\n'
+            'These choices will be taken into consideration for car recommendation.\n'
+            "You may rank until you feel you have no more preferences or until you've exhausted all options.",
+            style=S_CONFIG[1][1])
     i = 1
     pref = ''
     ranking_dict = dict()
     while len(CHOICES) > 2:
         pref = q.select('Choose preference: ', choices=CHOICES,
-                        style=q_style, qmark='\n' + str(i)).ask()
+                        style=Style(S_CONFIG), qmark='\n' + str(i)).ask()
         if pref == 'Stop Ranking':
             break
         CHOICES.remove(pref)
