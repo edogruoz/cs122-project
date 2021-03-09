@@ -588,7 +588,6 @@ def get_car_prices(car_df, input_dict):
 
     return car_df, old_car_price
 
-
 def go():
     '''
     Main program, takes users input (their current
