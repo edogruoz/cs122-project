@@ -438,8 +438,10 @@ def recommend_cars(db, input_dict, ranking_dict, id):
         if len(df) <= CAR_LIMIT:  # break the loop if we have a small enough number of cars
             break
     
-    if len(df) > 20:
+    if len(df) > 20:  #dropping the original car, sampling, adding it again
+        df = df.drop(index=df[df["id"] == input_dict["id"]].index)
         df = df.sample(n=20, random_state=1)
+        df = df.append(car_dict, ignore_index=True)
 
     return df
 
@@ -553,39 +555,38 @@ def get_car_prices(car_df, input_dict):
           prices could not be found in kbb
         old_car_price: price of the user's own car, None if not found
     '''
-    
+    car_df["price"] = "N/A"
 
     pm = urllib3.PoolManager(
        cert_reqs='CERT_REQUIRED',
        ca_certs=certifi.where())
     
-    price_dict = {}
-    no_price_found = {}
     old_car_price = None
+    car_df = car_df.reset_index()
 
     for i, row in car_df.iterrows():
         make, possible_models, year = get_info_for_price(row)
         if year < 1992 and i != len(new_df) - 1:
-            no_price_found[row["id"]] = (make, model, year)
             continue
-        for i, model in enumerate(possible_models):
+        for j, model in enumerate(possible_models):
             myurl = "https://www.kbb.com/{}/{}/{}/".format(make, model, year)
             html = pm.urlopen(url=myurl, method="GET").data
             soup = bs4.BeautifulSoup(html, features="html.parser")
             title = soup.find_all("title")[0].text
-            if ("Find Your Perfect Car" not in title) and ("Kelley Blue Book | Error" not in title):  #these indicate that there was no exact match
+            if ("Find Your Perfect Car" not in title) and ("Kelley Blue Book | Error" not in title):
                 break
         if ("Find Your Perfect Car" in title) or ("Kelley Blue Book | Error" in title) or (str(year) not in title):
-            no_price_found[row["id"]] = (make, model, year)
             continue
         price_text = soup.find_all("script", attrs={"data-rh":"true"})[-1].text
         m =  re.findall('"price":"([0-9]+)"', price_text)[0]
-        if i == len(new_df) - 1:
-            old_car_price = m 
-        else:
-            price_dict[row["id"]] = (make, model, year, m) 
+        if i == len(car_df) - 1:
+            old_car_price =int(m) 
+        car_df.loc[i, "price"] = int(m) 
     
-    return price_dict, no_price_found, old_car_price
+    if old_car_price is not None:
+        car_df["difference"] = old_car_price - car_df.price[car_df.price != "N/A"]
+
+    return car_df, old_car_price
 
 
 def go():
