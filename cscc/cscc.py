@@ -370,34 +370,34 @@ def recommend_cars(db, input_dict, ranking_dict, id):
 
     s1 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
             co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
-            AS co2_emission, year FROM vehicles WHERE co2_emission <= ?"
+            AS co2_emission, year, trany FROM vehicles WHERE co2_emission <= ?"
     
     alt_s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
-             year FROM vehicles" #to be potentially used later 
+             year, trany FROM vehicles" #to be potentially used later 
             
     a = c.execute(s1, AVERAGE_CO2)
 
     df = pd.DataFrame(a.fetchall(), columns=["id", "make","model", "pv2", \
         "pv4", "hpv", "lv2", "lv4", "hlv", "fuelType", "VClass", \
-        "co2_emission", "year"])
+        "co2_emission", "year", "trany"])
 
-    s2 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year FROM vehicles WHERE id = ?"
+    s2 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year, trany FROM vehicles WHERE id = ?"
 
     old_car = c.execute(s2, [str(id)])
     car_id, car_make, car_model, car_pv2, car_pv4, car_hpv, \
-        car_lv2, car_lv4, car_hlv, car_fuelType, car_VClass, year = old_car.fetchall()[0]
+        car_lv2, car_lv4, car_hlv, car_fuelType, car_VClass, year, trany = old_car.fetchall()[0]
 
     car_lv = max(car_lv4, car_hlv, car_lv2) #taking the max since some will have 0 as entries
     car_pv = max(car_pv2, car_pv4, car_hpv)
 
     match_dict = {"make":car_make, "VClass":car_VClass, \
         "fuelType":car_fuelType, "year": year, "luggage_volume": car_lv, \
-        "passenger_volume": car_pv}
+        "passenger_volume": car_pv, "trany": trany}
 
     car_dict = {"id":car_id, "make":car_make,"model": car_model, \
         "pv2": car_pv2, "pv4":car_pv4,"hpv":car_hpv,\
         "lv2":car_lv2, "lv4":car_lv4, "hlv":car_hlv, \
-        "fuelType":car_fuelType, "VClass":car_VClass, "year":year}
+        "fuelType":car_fuelType, "VClass":car_VClass, "year":year, "trany": trany}
 
     df = df.append(car_dict, ignore_index=True) #important for the price function for this to be the LAST row
     
@@ -408,6 +408,11 @@ def recommend_cars(db, input_dict, ranking_dict, id):
         elif of_interest == "year":
             new_df = df[(df[of_interest] >= match_dict[of_interest]
              - 5) & (df[of_interest] <= match_dict[of_interest] + 5)]
+        elif of_interest == "trany":
+            m = df["trany"].str.split(" ", expand=True).iloc[:, 0]
+            new_d = pd.concat([df, m], axis=1)
+            new_df = new_d[new_d.iloc[:, -1] == match_dict[of_interest].split()[0]]
+            new_df = new_df.drop(new_df.columns[-1], axis=1)
         else:
             if of_interest == "luggage_volume": #choosing the max for comparison to ignore entries of 0
                 if car_lv == 0:
@@ -434,7 +439,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
             break
     
     if len(df) > 20:
-        df = df.sample(n=20)
+        df = df.sample(n=20, random_state=1)
 
     return df
 
@@ -449,9 +454,9 @@ def get_volume(cursor, string, id, type_):
         lst = ["pv2", "pv4", "hpv"]
 
     b = cursor.execute(string)
-    new_df = pd.DataFrame(b.fetchall(), columns = ["id", "make",
-        "model", "pv2", "pv4", "hpv", "lv2", "lv4", "hlv", 
-        "fuelType", "VClass", "year"])
+    new_df = pd.DataFrame(b.fetchall(), columns = ["id", "make", \
+        "model", "pv2", "pv4", "hpv", "lv2", "lv4", "hlv", \
+        "fuelType", "VClass", "year", "trany"])
     row = new_df[new_df["id"] == id]
     new_df = process_df(new_df, type_, row)
     new_row = new_df[new_df["id"] == id]
