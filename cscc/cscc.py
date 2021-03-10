@@ -34,7 +34,7 @@ MIN_LIMIT = 3
 YEARLY_MILES = 15000
 
 # Style options for terminal questions
-q_style = Style([
+S_CONFIG = [
     ('qmark', 'fg:#A0E8AF'),            # token in front of the question
     ('question', 'fg:#EDEAD0 bold'),    # question text
     ('answer', 'fg:#27BB6F bold'),      # submitted answer text behind the question
@@ -45,20 +45,7 @@ q_style = Style([
     ('instruction', ''),                # user instructions for select, rawselect, checkbox
     ('text', ''),                       # plain text
     ('disabled', 'fg:#858585 italic')   # disabled choices for select and checkbox prompts
-])
-
-alert_style = Style([
-    ('qmark', 'fg:#CF5050'),            # token in front of the question
-    ('question', 'fg:#EDEAD0 bold'),    # question text
-    ('answer', 'fg:#27BB6F bold'),      # submitted answer text behind the question
-    ('pointer', 'fg:#673ab7 bold'),     # pointer used in select and checkbox prompts
-    ('highlighted', 'fg:#673ab7 bold'), # pointed-at choice in select and checkbox prompts
-    ('selected', 'fg:#EDEAD0'),         # style for a selected item of a checkbox
-    ('separator', 'fg:#cc5454'),        # separator in lists
-    ('instruction', ''),                # user instructions for select, rawselect, checkbox
-    ('text', ''),                       # plain text
-    ('disabled', 'fg:#858585 italic')   # disabled choices for select and checkbox prompts
-])
+]
 
 
 def build_db(connection):
@@ -162,7 +149,7 @@ def get_user_input(conn):
                               choices=make_results,
                               validate=(lambda text:
                                         autoc_validator(text, cursor, 'make')),
-                              style=q_style, qmark='⯁ ').ask()
+                              style=Style(S_CONFIG), qmark='⯁ ').ask()
 
     m_y_query = ('SELECT DISTINCT model || " " || year '
                  'FROM vehicles WHERE make = ?')
@@ -172,60 +159,74 @@ def get_user_input(conn):
                              choices=m_y_results,
                              validate=(lambda text:
                                        autoc_validator(text, cursor, 'm_y')),
-                             style=q_style, qmark='\n⯁ ').ask()
+                             style=Style(S_CONFIG), qmark='\n⯁ ').ask()
     model,_ , year = m_y_ans.rpartition(' ')
 
     ans_tup = (make_ans, model, int(year))
-    uniq, id_lst = unique_helper(cursor, 'id', ans_tup)
-    id_ = id_lst[0]
+    uniq, _ = unique_helper(cursor, 'id', ans_tup)
     c_msg = ('Your particular car has some variants, would you like to be '
              'more specific?\n   You may be prompted to choose transmission, '
-             ' number of cylinders, or drive type.\n   Recommended only if you '
+             'number of cylinders, or drive type.\n   Recommended only if you '
              'are comfortable with these more advanced options.\n   '
              '(Skipping defaults to No.)\n   ')
-    advanced = q.confirm(c_msg, default=False, style=alert_style,
+    advanced = q.confirm(c_msg, default=False, style=Style(S_CONFIG + [('qmark', 'fg:#CF5050')]),
                          qmark='\n❗').skip_if(uniq).ask()
 
+    trans = ''
+    cyl = ''
+    drive = ''
     if advanced:
         t_uniq, t_results = unique_helper(cursor, 'trany', ans_tup)
         t_ans = q.select("Which matches your car's transmission?\n   ",
-                         choices=sorted(t_results) + ['Not Sure'], style=q_style,
+                         choices=sorted(t_results) + ['Not Sure'], style=Style(S_CONFIG),
                          qmark='\n⯁ ').skip_if(t_uniq).ask()
 
         if t_ans in ['Not Sure', None]:
-            trans, t_ans = '', ()
+            t_ans = ()
         else:
             trans, t_ans = ' AND trany = ?', (t_ans,)
         c_uniq, c_results = unique_helper(cursor, 'cylinders', ans_tup, (trans, t_ans))
         c_ans = q.select("Which matches your car's cylinder count?\n   ",
-                         choices=sorted(c_results) + ['Not Sure'], style=q_style,
+                         choices=sorted(c_results) + ['Not Sure'], style=Style(S_CONFIG),
                          qmark='\n⯁ ').skip_if(c_uniq).ask()
 
         if c_ans in ['Not Sure', None]:
-            cyl, c_ans = '', ()
+            c_ans = ()
         else:
             cyl, c_ans = ' AND cylinders = ?', (c_ans,)
         d_uniq, d_results = unique_helper(cursor, 'drive', ans_tup, (trans + cyl, t_ans + c_ans))
         d_ans = q.select("Which matches your car's drive type?\n   ",
-                         choices=sorted(d_results) + ['Not Sure'], style=q_style,
+                         choices=sorted(d_results) + ['Not Sure'], style=Style(S_CONFIG),
                          qmark='\n⯁ ').skip_if(d_uniq).ask()
 
         if d_ans in ['Not Sure', None]:
-            drive, d_ans = '', ()
+            d_ans = ()
         else:
             drive, d_ans = ' AND drive = ?', (d_ans,)
-        
-        id_query = 'SELECT id FROM vehicles ' + WHERE_CMD + trans + cyl + drive
-        id_ = cursor.execute(id_query, ans_tup + t_ans + c_ans + d_ans).fetchone()
+    else:
+        t_ans = ()
+        c_ans = ()
+        d_ans = ()
 
-    input_dict = {'id': id_,
+    vol_cmd = ' AND (pv2 != 0'
+    for vol in DATA_COLS[9:14]:
+        vol_cmd += f' OR {vol} != 0'
+    vol_cmd += ')'
+    id_query = 'SELECT id FROM vehicles ' + WHERE_CMD + trans + cyl + drive + vol_cmd
+    id_ = cursor.execute(id_query, ans_tup + t_ans + c_ans + d_ans).fetchone()
+    #print(id_query)
+
+    input_dict = {'id': id_[0],
                   'make': make_ans,
                   'model': model,
-                  'year': int(year)}
+                  'year': int(year),
+                  }
+    if t_ans:
+        input_dict['trany'] = t_ans[0].partition(' ')[0]
 
     use_miles = q.text('Estimation for weekly miles driven?\n   ',
                        validate=lambda text: txt_validator(text),
-                       style=q_style, qmark='\n⯁ ').ask()
+                       style=Style(S_CONFIG), qmark='\n⯁ ').ask()
     
     input_dict['use_miles'] = float(use_miles)
     print('For debugging purposes:')
@@ -239,15 +240,18 @@ def rank_pref(conn, input_dict):
     '''
     '''
     CHOICES = ['Make', 'Year', 'Vehicle Class', 'Fuel Type',  'Passenger capacity', 'Luggage Capacity', 'Stop Ranking']
-    print('We will now ask you to rank which attributes you like most about your current car.\n'
-          'These choices will be taken into consideration for car recommendation.\n'
-          "You may rank until you feel you have no more preferences or until you've exhausted all options.")
+    if input_dict.get('trany'):
+        CHOICES.insert(2, 'Transmission')
+    q.print('We will now ask you to rank which attributes you like most about your current car.\n'
+            'These choices will be taken into consideration for car recommendation.\n'
+            "You may rank until you feel you have no more preferences or until you've exhausted all options.",
+            style=S_CONFIG[1][1])
     i = 1
     pref = ''
     ranking_dict = dict()
     while len(CHOICES) > 2:
         pref = q.select('Choose preference: ', choices=CHOICES,
-                        style=q_style, qmark='\n' + str(i)).ask()
+                        style=Style(S_CONFIG), qmark='\n' + str(i)).ask()
         if pref == 'Stop Ranking':
             break
         CHOICES.remove(pref)
@@ -345,7 +349,7 @@ def get_fuel_price(db, car_id, no_miles):
 
 def co2_emission(co2_1, co2_2, miles):
     '''
-    Calculates co2 emissions with the given mile,
+    Calculates co2 emissions with the given mile, 
       to be used in sqlite
     '''
 
@@ -353,7 +357,7 @@ def co2_emission(co2_1, co2_2, miles):
         co2 = (co2_1 + co2_2)/2
     else:
         co2 = co2_1
-
+    
     return co2 * miles
 
 
@@ -371,10 +375,10 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     s1 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
             co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
             AS co2_emission, year, trany FROM vehicles WHERE co2_emission <= ?"
-
+    
     alt_s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
-             year, trany FROM vehicles" #to be potentially used later
-
+             year, trany FROM vehicles" #to be potentially used later 
+            
     a = c.execute(s1, AVERAGE_CO2)
 
     df = pd.DataFrame(a.fetchall(), columns=["id", "make","model", "pv2", \
@@ -400,7 +404,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
         "fuelType":car_fuelType, "VClass":car_VClass, "year":year, "trany": trany}
 
     df = df.append(car_dict, ignore_index=True) #important for the price function for this to be the LAST row
-
+    
     for i in range(1, len(ranking_dict)+1):
         of_interest = ranking_dict[i]
         if of_interest  in ["make", "VClass", "fuelType"]:
@@ -420,7 +424,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
                 if car_lv == 0:
                     continue
                 df = process_df(df, "lv")
-                new_df = df[(df[["lv4", "hlv", "lv2"]].max(axis=1) >=
+                new_df = df[(df[["lv4", "hlv", "lv2"]].max(axis=1) >= 
                 car_lv * 0.95) & (df[["lv4", "hlv", "lv2"]
                 ].max(axis=1) <= car_lv * 1.05)]
             else:
@@ -429,7 +433,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
                 if car_pv == 0:
                     continue
                 df = process_df(df, "pv")
-                new_df = df[(df[["pv4", "hpv", "pv2"]].max(axis=1) >=
+                new_df = df[(df[["pv4", "hpv", "pv2"]].max(axis=1) >= 
                 car_pv * 0.95) & (df[["pv4", "hpv", "pv2"]
                 ].max(axis=1) <= car_pv * 1.05)]
         if len(new_df) <= MIN_LIMIT:  # discard the new filtering if the resulting number of cars is too small
@@ -437,39 +441,13 @@ def recommend_cars(db, input_dict, ranking_dict, id):
         df = new_df
         if len(df) <= CAR_LIMIT:  # break the loop if we have a small enough number of cars
             break
-
-    if len(df) > 20:
+    
+    if len(df) > 20:  #dropping the original car, sampling, adding it again
+        df = df.drop(index=df[df["id"] == input_dict["id"]].index)
         df = df.sample(n=20, random_state=1)
+        df = df.append(car_dict, ignore_index=True)
 
     return df
-
-
-def get_savings(db, input_dict, df, id):
-    '''
-    Given a df from recommend_cars(), and the user's own car's id,
-    calculate the fuel costs and savings and add them to the df returned.
-    '''
-    new_df = pd.DataFrame()
-    miles = input_dict["use_miles"]
-
-    s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year, trany FROM vehicles WHERE id = ?"
-    old_weekly_cost = get_fuel_price(db, id, miles)
-    old_yearly_cost = old_weekly_cost * 52
-
-    for _, row in df.iterrows():
-        car_id = row['id']
-        weekly_cost = get_fuel_price(db, car_id, miles)
-        yearly_cost = weekly_cost * 52
-        weekly_savings = old_weekly_cost - weekly_cost
-        yearly_savings = old_yearly_cost - yearly_cost
-        new_row = row.copy()
-        new_row['weekly_cost'] = weekly_cost
-        new_row['yearly_cost'] = yearly_cost
-        new_row['weekly_savings'] = weekly_savings
-        new_row['yearly_savings'] = yearly_savings
-        new_df.append(new_row)
-
-    return new_df
 
 
 def get_volume(cursor, string, id, type_):
@@ -507,7 +485,7 @@ def process_df(df, type_, df2=False):
     elif type_ == "lv":
         missing_lv = df2[df2[["lv2", "lv4", "hlv"]].max(axis=1) == 0]
         df = helper_process_df(df, missing_lv, "lv")
-
+    
     return df
 
 
@@ -529,7 +507,7 @@ def helper_process_df(df, df2, type_):
         model = row["model"]
         model_str = model.split()[0]
         year = row["year"]
-
+        
         alternatives = df[(df["make"] == make) & (df["first_word"] == model_str
             ) & (df["year"].between(year - 4, year + 4)) & (df["id"] != id) & (
             df[cols].max(axis=1) > 0)]
@@ -567,54 +545,52 @@ def get_info_for_price(data_str):
 def get_car_prices(car_df, input_dict):
     '''
     Crawls prices for the recommended cars and the user's car
-      from kbb.
-
+      from kbb. 
+    
     Inputs:
         car_df (pd.DataFrame): dataframe of cars to be recommended
         input_dict
-
+    
     Returns:
-        price_dict (dict): a dictionary with car id as the key and a
+        price_dict (dict): a dictionary with car id as the key and a 
           tuple of (make, model, year, price) as the value
-        no_price_found (dict): a dictionary with car id as the key and a
-          tuple of (make, model, year) as the value for cars whose
+        no_price_found (dict): a dictionary with car id as the key and a 
+          tuple of (make, model, year) as the value for cars whose 
           prices could not be found in kbb
         old_car_price: price of the user's own car, None if not found
     '''
-
+    car_df["price"] = "N/A"
 
     pm = urllib3.PoolManager(
        cert_reqs='CERT_REQUIRED',
        ca_certs=certifi.where())
-
-    price_dict = {}
-    no_price_found = {}
+    
     old_car_price = None
+    car_df = car_df.reset_index()
 
     for i, row in car_df.iterrows():
         make, possible_models, year = get_info_for_price(row)
         if year < 1992 and i != len(new_df) - 1:
-            no_price_found[row["id"]] = (make, model, year)
             continue
-        for i, model in enumerate(possible_models):
+        for j, model in enumerate(possible_models):
             myurl = "https://www.kbb.com/{}/{}/{}/".format(make, model, year)
             html = pm.urlopen(url=myurl, method="GET").data
             soup = bs4.BeautifulSoup(html, features="html.parser")
             title = soup.find_all("title")[0].text
-            if ("Find Your Perfect Car" not in title) and ("Kelley Blue Book | Error" not in title):  #these indicate that there was no exact match
+            if ("Find Your Perfect Car" not in title) and ("Kelley Blue Book | Error" not in title):
                 break
         if ("Find Your Perfect Car" in title) or ("Kelley Blue Book | Error" in title) or (str(year) not in title):
-            no_price_found[row["id"]] = (make, model, year)
             continue
         price_text = soup.find_all("script", attrs={"data-rh":"true"})[-1].text
         m =  re.findall('"price":"([0-9]+)"', price_text)[0]
-        if i == len(new_df) - 1:
-            old_car_price = m
-        else:
-            price_dict[row["id"]] = (make, model, year, m)
+        if i == len(car_df) - 1:
+            old_car_price =int(m) 
+        car_df.loc[i, "price"] = int(m) 
+    
+    if old_car_price is not None:
+        car_df["difference"] = old_car_price - car_df.price[car_df.price != "N/A"]
 
-    return price_dict, no_price_found, old_car_price
-
+    return car_df, old_car_price
 
 def go():
     '''
