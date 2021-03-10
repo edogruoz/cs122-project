@@ -328,16 +328,16 @@ def get_fuel_price(db, car_id, no_miles):
     Gives the money spent on fuel for a given car and
     a given number of miles
     '''
-
+    
     s1 = "SELECT fuelCost08, fuelCostA08 FROM vehicles WHERE id = ?"
 
     db = sqlite3.connect(db)
     c = db.cursor()
-    r = c.execute(s1, car_id)
+    r = c.execute(s1, [str(car_id)])
     rv = r.fetchall()
     db.close
 
-    fuel1_cost, fuel2_cost = rv
+    fuel1_cost, fuel2_cost = rv[0]
 
     if fuel2_cost:
         cost = (fuel1_cost + fuel2_cost) / 2
@@ -473,7 +473,7 @@ def get_savings(db, input_dict, df, id):
         new_row['yearly_cost'] = yearly_cost
         new_row['weekly_savings'] = weekly_savings
         new_row['yearly_savings'] = yearly_savings
-        new_df.append(new_row)
+        new_df = new_df.append(new_row)
 
     return new_df
 
@@ -565,7 +565,7 @@ def get_info_for_price(data_str):
     possible_models = ["-".join(model_lst).lower(), model_lst[0].lower()]
     if len(model_lst) >= 2:
             possible_models +=  ["-".join(model_lst[:2]).lower()]
-    year = data_str["year"]
+    year = int(data_str["year"])
 
     return make, possible_models, year
 
@@ -619,6 +619,17 @@ def get_car_prices(car_df, input_dict):
         car_df["difference"] = old_car_price - car_df.price[car_df.price != "N/A"]
 
     return car_df, old_car_price
+
+def calculate_savings(car_df, old_car_price):
+
+    car_df["five_year_savings"] = 0
+    car_df.five_year_savings[car_df.difference.notna()] = car_df.difference[car_df.difference.notna()] + \
+            car_df.yearly_savings[car_df.difference.notna()] * 5
+    
+    car_df.five_year_savings[car_df.difference.isna()] = car_df.yearly_savings[car_df.difference.isna()] * 5
+
+    return car_df
+
 
 def go():
     '''
