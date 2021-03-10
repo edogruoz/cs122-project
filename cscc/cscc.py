@@ -450,6 +450,34 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     return df
 
 
+def get_savings(db, input_dict, df, id):
+    '''
+    Given a df from recommend_cars(), and the user's own car's id,
+    calculate the fuel costs and savings and add them to the df returned.
+    '''
+    new_df = pd.DataFrame()
+    miles = input_dict["use_miles"]
+
+    s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year, trany FROM vehicles WHERE id = ?"
+    old_weekly_cost = get_fuel_price(db, id, miles)
+    old_yearly_cost = old_weekly_cost * 52
+
+    for _, row in df.iterrows():
+        car_id = row['id']
+        weekly_cost = get_fuel_price(db, car_id, miles)
+        yearly_cost = weekly_cost * 52
+        weekly_savings = old_weekly_cost - weekly_cost
+        yearly_savings = old_yearly_cost - yearly_cost
+        new_row = row.copy()
+        new_row['weekly_cost'] = weekly_cost
+        new_row['yearly_cost'] = yearly_cost
+        new_row['weekly_savings'] = weekly_savings
+        new_row['yearly_savings'] = yearly_savings
+        new_df.append(new_row)
+
+    return new_df
+
+
 def get_volume(cursor, string, id, type_):
     '''
     Get luggage or passenger volume of the input car if it is missing
