@@ -345,7 +345,7 @@ def get_fuel_price(db, car_id, no_miles):
 
 def co2_emission(co2_1, co2_2, miles):
     '''
-    Calculates co2 emissions with the given mile, 
+    Calculates co2 emissions with the given mile,
       to be used in sqlite
     '''
 
@@ -353,7 +353,7 @@ def co2_emission(co2_1, co2_2, miles):
         co2 = (co2_1 + co2_2)/2
     else:
         co2 = co2_1
-    
+
     return co2 * miles
 
 
@@ -371,10 +371,10 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     s1 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
             co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
             AS co2_emission, year, trany FROM vehicles WHERE co2_emission <= ?"
-    
+
     alt_s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
-             year, trany FROM vehicles" #to be potentially used later 
-            
+             year, trany FROM vehicles" #to be potentially used later
+
     a = c.execute(s1, AVERAGE_CO2)
 
     df = pd.DataFrame(a.fetchall(), columns=["id", "make","model", "pv2", \
@@ -400,7 +400,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
         "fuelType":car_fuelType, "VClass":car_VClass, "year":year, "trany": trany}
 
     df = df.append(car_dict, ignore_index=True) #important for the price function for this to be the LAST row
-    
+
     for i in range(1, len(ranking_dict)+1):
         of_interest = ranking_dict[i]
         if of_interest  in ["make", "VClass", "fuelType"]:
@@ -420,7 +420,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
                 if car_lv == 0:
                     continue
                 df = process_df(df, "lv")
-                new_df = df[(df[["lv4", "hlv", "lv2"]].max(axis=1) >= 
+                new_df = df[(df[["lv4", "hlv", "lv2"]].max(axis=1) >=
                 car_lv * 0.95) & (df[["lv4", "hlv", "lv2"]
                 ].max(axis=1) <= car_lv * 1.05)]
             else:
@@ -429,7 +429,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
                 if car_pv == 0:
                     continue
                 df = process_df(df, "pv")
-                new_df = df[(df[["pv4", "hpv", "pv2"]].max(axis=1) >= 
+                new_df = df[(df[["pv4", "hpv", "pv2"]].max(axis=1) >=
                 car_pv * 0.95) & (df[["pv4", "hpv", "pv2"]
                 ].max(axis=1) <= car_pv * 1.05)]
         if len(new_df) <= MIN_LIMIT:  # discard the new filtering if the resulting number of cars is too small
@@ -437,11 +437,39 @@ def recommend_cars(db, input_dict, ranking_dict, id):
         df = new_df
         if len(df) <= CAR_LIMIT:  # break the loop if we have a small enough number of cars
             break
-    
+
     if len(df) > 20:
         df = df.sample(n=20, random_state=1)
 
     return df
+
+
+def get_savings(db, input_dict, df, id):
+    '''
+    Given a df from recommend_cars(), and the user's own car's id,
+    calculate the fuel costs and savings and add them to the df returned.
+    '''
+    new_df = pd.DataFrame()
+    miles = input_dict["use_miles"]
+
+    s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year, trany FROM vehicles WHERE id = ?"
+    old_weekly_cost = get_fuel_price(db, id, miles)
+    old_yearly_cost = old_weekly_cost * 52
+
+    for _, row in df.iterrows():
+        car_id = row['id']
+        weekly_cost = get_fuel_price(db, car_id, miles)
+        yearly_cost = weekly_cost * 52
+        weekly_savings = old_weekly_cost - weekly_cost
+        yearly_savings = old_yearly_cost - yearly_cost
+        new_row = row.copy()
+        new_row['weekly_cost'] = weekly_cost
+        new_row['yearly_cost'] = yearly_cost
+        new_row['weekly_savings'] = weekly_savings
+        new_row['yearly_savings'] = yearly_savings
+        new_df.append(new_row)
+
+    return new_df
 
 
 def get_volume(cursor, string, id, type_):
@@ -479,7 +507,7 @@ def process_df(df, type_, df2=False):
     elif type_ == "lv":
         missing_lv = df2[df2[["lv2", "lv4", "hlv"]].max(axis=1) == 0]
         df = helper_process_df(df, missing_lv, "lv")
-    
+
     return df
 
 
@@ -501,7 +529,7 @@ def helper_process_df(df, df2, type_):
         model = row["model"]
         model_str = model.split()[0]
         year = row["year"]
-        
+
         alternatives = df[(df["make"] == make) & (df["first_word"] == model_str
             ) & (df["year"].between(year - 4, year + 4)) & (df["id"] != id) & (
             df[cols].max(axis=1) > 0)]
@@ -539,26 +567,26 @@ def get_info_for_price(data_str):
 def get_car_prices(car_df, input_dict):
     '''
     Crawls prices for the recommended cars and the user's car
-      from kbb. 
-    
+      from kbb.
+
     Inputs:
         car_df (pd.DataFrame): dataframe of cars to be recommended
         input_dict
-    
+
     Returns:
-        price_dict (dict): a dictionary with car id as the key and a 
+        price_dict (dict): a dictionary with car id as the key and a
           tuple of (make, model, year, price) as the value
-        no_price_found (dict): a dictionary with car id as the key and a 
-          tuple of (make, model, year) as the value for cars whose 
+        no_price_found (dict): a dictionary with car id as the key and a
+          tuple of (make, model, year) as the value for cars whose
           prices could not be found in kbb
         old_car_price: price of the user's own car, None if not found
     '''
-    
+
 
     pm = urllib3.PoolManager(
        cert_reqs='CERT_REQUIRED',
        ca_certs=certifi.where())
-    
+
     price_dict = {}
     no_price_found = {}
     old_car_price = None
@@ -581,10 +609,10 @@ def get_car_prices(car_df, input_dict):
         price_text = soup.find_all("script", attrs={"data-rh":"true"})[-1].text
         m =  re.findall('"price":"([0-9]+)"', price_text)[0]
         if i == len(new_df) - 1:
-            old_car_price = m 
+            old_car_price = m
         else:
-            price_dict[row["id"]] = (make, model, year, m) 
-    
+            price_dict[row["id"]] = (make, model, year, m)
+
     return price_dict, no_price_found, old_car_price
 
 
