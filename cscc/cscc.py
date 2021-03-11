@@ -4,17 +4,18 @@
 #
 # Efe Dogruoz, Ebru Ermis, Mey Abdullahoglu, Kevin Ramirez
 
+import io
+import re
+import bs4
+import urllib3
+import certifi
 import sqlite3
 from sqlite3.dbapi2 import Error
 import pandas as pd
+
 import questionary as q
 from questionary import ValidationError
 from questionary import Style
-import re
-import urllib3
-import bs4
-import certifi
-import io
 
 URL = "https://www.fueleconomy.gov/feg/epadata/vehicles.csv"
 
@@ -22,63 +23,62 @@ DATA_COLS = ['id', 'make', 'model', 'year', 'trany', 'drive', 'cylinders',
              'VClass', 'pv2', 'pv4', 'hpv', 'lv2', 'lv4', 'hlv', 'fuelCost08',
              'fuelCostA08', 'fuelType', 'co2TailpipeGpm', 'co2TailpipeAGpm']
 
-MILES_PER_HOUR = 30 #needs to be edited
-SELECT_CMD = ("SELECT co2TailpipeGpm, fuelCost08,"
-              " fuelCostA08, fuelType FROM vehicles ")
 WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 
 AVG_EMISSION = 4600000
-AVERAGE_CO2 = [89038.5]   #g/week
+AVG_CO2 = [89038.5]   #g/week
 CAR_LIMIT = 20 #number of cars to reduce to before checking prices, can lower
 MIN_LIMIT = 3
 YEARLY_MILES = 15000
 
 # Style options for terminal questions
-S_CONFIG = [
-    ('qmark', 'fg:#A0E8AF'),            # token in front of the question
-    ('question', 'fg:#EDEAD0 bold'),    # question text
-    ('answer', 'fg:#27BB6F bold'),      # submitted answer text behind the question
-    ('pointer', 'fg:#A0E8AF bold'),     # pointer used in select and checkbox prompts
-    ('highlighted', 'fg:#A0E8AF bold'), # pointed-at choice in select and checkbox prompts
-    ('selected', 'fg:#EDEAD0 bold'),    # style for a selected item of a checkbox
-    ('separator', 'fg:#cc5454'),        # separator in lists
-    ('instruction', ''),                # user instructions for select, rawselect, checkbox
-    ('text', ''),                       # plain text
-    ('disabled', 'fg:#858585 italic')   # disabled choices for select and checkbox prompts
-]
+S_CONFIG = [('qmark', 'fg:#A0E8AF'),             # token in front of the question
+            ('question', 'fg:#EDEAD0 bold'),     # question text
+            ('answer', 'fg:#27BB6F bold'),       # submitted answer text behind the question
+            ('pointer', 'fg:#A0E8AF bold'),      # pointer used in select and checkbox prompts
+            ('highlighted', 'fg:#A0E8AF bold'),  # pointed-at choice in select and checkbox prompts
+            ('selected', 'fg:#EDEAD0 bold'),     # style for a selected item of a checkbox
+            ('separator', 'fg:#cc5454'),         # separator in lists
+            ('instruction', ''),                 # user instructions for select, rawselect, checkbox
+            ('text', ''),                        # plain text
+            ('disabled', 'fg:#858585 italic')]   # disabled choices for select and checkbox prompts
 
 
 def build_db(connection):
-    '''
+    """
     Creates sqlite database file containing only the columns
     relevant for our use from the original vehicle csv.
     Fetches csv directly from constant URL and filters by
     constant DATA_COLS.
 
-    Input:
-        connection: connection object for db file
-    '''
+    Parameters:
+        connection (obj): connection object for db file
+    """
     df = pd.read_csv(URL, usecols=DATA_COLS, index_col='id', engine='c')
     # IMPORTANT .to_sql cannot create a table with a primary key
     df.to_sql('vehicles', con=connection, if_exists='replace')
 
+
 # Used as questionary parameters to reject user input
 def autoc_validator(text, cursor, query):
-    '''
+    """
     Checks if the car details being inputted are valid,
     does not let user submit if it isn't in the local database.
 
-    Inputs:
-        text: string of the user's input, updates as it changes
-            allowing for real time validation, unlike python's input()
-        cursor: cursor object for database we will be querying
-        query: string which is checked to determine what car detail
-            to query for validation, the make or the model and year
+    Parameters:
+        text (str): user's input, updates as it changes allowing
+            for real time validation, unlike python's input()
+        cursor (obj): cursor for database we will be querying
+        query (str): checked to determine what car detail to query
+            for validation, the make or the model and year
 
-    Returns: True if valid, else raises validation error
-        (A little unorthodox vs just returning bools, but this allows
-        error msg to show up in prompt properly)
-    '''
+    Returns:
+        bool: True if valid
+    
+    Raises:
+        ValidationError: Raises instead of returning False, this
+            allows for questionary to properly display validator msg
+    """
     if query == 'make':
         exists_query = 'SELECT EXISTS (SELECT 1 FROM vehicles WHERE make = ?)'
     elif query == 'm_y':
@@ -89,22 +89,25 @@ def autoc_validator(text, cursor, query):
         raise ValidationError(
             message='Current entry does not match database!'
         )
-
     return True
 
 
 def txt_validator(text):
-    '''
+    """
     Checks if use_miles is a non-negative number for
     validation.
 
-    Inputs: text - string of the user's input, updates as it changes
-        allowing for real time validation, unlike python's input()
+    Parameters:
+        text (str): user's input, updates as it changes allowing
+            for real time validation, unlike python's input()
 
-    Returns: True if valid, else raises validation error
-        (A little unorthodox vs just returning bools, but this allows
-        error msg to show up in prompt properly)
-    '''
+    Returns:
+        bool: True if valid
+    
+    Raises:
+        ValidationError: Raises instead of returning False, this
+            allows for questionary to properly display validator msg
+    """
     try:
         if float(text) < 0:
             raise ValidationError(
@@ -114,138 +117,150 @@ def txt_validator(text):
         raise ValidationError(
             message='Entry must be a number!'
         ) from ValueError
-
     return True
 
 
-def unique_helper(cursor, col_str, param_tup, add=('', ())):
-    '''
-    '''
-    uniq_query = ('SELECT ' + col_str + ' FROM vehicles ' + WHERE_CMD + add[0])
-    uniq_results = cursor.execute(uniq_query, param_tup + add[1]).fetchall()
+def unique_helper(c, col, col_desc, base_param, prev=[]):
+    """
+    Refines id search by checking if transmission, cylinder, or drive
+    data is enough to uniquely identify a given car.
+
+    Parameters:
+        c (obj): cursor for current connection to database
+        col (str): column we will query for uniqueness
+        col_desc (str): modifies question string to best fit
+            current query
+        base_param (tup): make, model, year used as filters for
+            query. These parameters are built upon as each
+            successive question provides new information
+        prev (lst): contains tuples of form
+            (prev col queried, prev unique_helper result)
+            needed so that later calls to this function may
+            use new information to refine its query
+    
+    Returns:
+        tup:ans (str) - the feature selected by the user that matches
+            their current car. Can also be None if there is only one
+            possible choice of that feature given the query
+            restrictions or if user is unsure
+            cond (str) - (used only the last time the function is
+            called) saves WHERE clause to be used outside the function
+    """
+    add_cond, param_tup = '', ()
+    prev = [tup for tup in prev if tup[1]]
+    if prev:
+        cond_tup, param_tup = zip(*prev)
+        for cond in cond_tup:
+            add_cond += f' AND {cond} = ?'
+    uniq_query = f'SELECT {col} FROM vehicles {WHERE_CMD} {add_cond}'
+    uniq_results = c.execute(uniq_query, base_param + param_tup).fetchall()
     uniq_results = {str(tup[0]) for tup in uniq_results}
     uniq = len(uniq_results) == 1
+    ans = q.select(f"Which matches your car's {col_desc}?\n   ",
+                         choices=sorted(uniq_results) + ['Not Sure'],
+                         style=Style(S_CONFIG),
+                         qmark='\n⯁ ').skip_if(uniq).ask()
+    if ans == 'Not Sure':
+        ans = None
+    return ans, add_cond
 
-    return uniq, list(uniq_results)
 
-# WIP
-def get_user_input(conn):
-    '''
-    Creates a dictionary with user car information
-    needed for look up along with daily miles estimation
-    and various preferences for car suggestion.
+def get_id(conn):
+    """
+    Extracts unique id from database by narrowing down candidates based
+    on user provided information. Some cars continue to have variants
+    even after all questions have been asked. For those that do, the
+    first id fetched by the final query result is the one we will use.
 
-    Inputs: Conn - connection object for database we will be querying
+    Parameters:
+        conn (obj): connection to sqlite database we will be querying
 
-    Returns: Input_dict - dictionary containing all submitted user details
-    '''
-    cursor = conn.cursor()
+    Returns:
+        int: identifier for user's current car, used as a means to
+            access other information related to their vehicle for
+            future functions
+    """
+    c = conn.cursor()
     make_query = 'SELECT DISTINCT make FROM vehicles'
-    make_results = cursor.execute(make_query).fetchall()
+    make_results = c.execute(make_query).fetchall()
     make_results = sorted({tup[0] for tup in make_results})
-    # Note, validate function must be passed in as lambda to work.
-    # possible consequence of the internal validator class within questionary?
     make_ans = q.autocomplete("What is your car's make?\n   ",
                               choices=make_results,
                               validate=(lambda text:
-                                        autoc_validator(text, cursor, 'make')),
+                                        autoc_validator(text, c, 'make')),
                               style=Style(S_CONFIG), qmark='⯁ ').ask()
 
-    m_y_query = ('SELECT DISTINCT model || " " || year '
+    m_y_query = ('SELECT DISTINCT model, year '
                  'FROM vehicles WHERE make = ?')
-    m_y_results = cursor.execute(m_y_query, (make_ans,)).fetchall()
-    m_y_results = sorted({tup[0] for tup in m_y_results})
+    m_y_results = set(c.execute(m_y_query, (make_ans,)).fetchall())
+    m_y_results = sorted(m_y_results, key=lambda tup: (tup[0], -tup[1]))
+    m_y_results = [tup[0] + ' ' + str(tup[1]) for tup in m_y_results]
     m_y_ans = q.autocomplete('What about model and year?\n   ',
                              choices=m_y_results,
                              validate=(lambda text:
-                                       autoc_validator(text, cursor, 'm_y')),
+                                       autoc_validator(text, c, 'm_y')),
                              style=Style(S_CONFIG), qmark='\n⯁ ').ask()
     model,_ , year = m_y_ans.rpartition(' ')
 
-    ans_tup = (make_ans, model, int(year))
-    uniq, _ = unique_helper(cursor, 'id', ans_tup)
+    base_tup = (make_ans, model, int(year))
+    id_query = f'SELECT id FROM vehicles {WHERE_CMD}'
+    uniq_results = c.execute(id_query, base_tup).fetchall()
+    uniq_results = [tup[0] for tup in uniq_results]
+    id_ = uniq_results[0]
+    uniq = len(uniq_results) == 1
     c_msg = ('Your particular car has some variants, would you like to be '
              'more specific?\n   You may be prompted to choose transmission, '
-             'number of cylinders, or drive type.\n   Recommended only if you '
-             'are comfortable with these more advanced options.\n   '
+             'number of cylinders, or drive type.\n   Recommended only if '
+             'you are comfortable with these more advanced options.\n   '
              '(Skipping defaults to No.)\n   ')
-    advanced = q.confirm(c_msg, default=False, style=Style(S_CONFIG + [('qmark', 'fg:#CF5050')]),
+    advanced = q.confirm(c_msg, default=False,
+                         style=Style(S_CONFIG + [('qmark', 'fg:#CF5050')]),
                          qmark='\n❗').skip_if(uniq).ask()
 
-    trans = ''
-    cyl = ''
-    drive = ''
     if advanced:
-        t_uniq, t_results = unique_helper(cursor, 'trany', ans_tup)
-        t_ans = q.select("Which matches your car's transmission?\n   ",
-                         choices=sorted(t_results) + ['Not Sure'], style=Style(S_CONFIG),
-                         qmark='\n⯁ ').skip_if(t_uniq).ask()
+        t_ans, _ = unique_helper(c, 'trany', 'transmission', base_tup)
+        c_ans, _ = unique_helper(c, 'cylinders', 'number of cylinders',
+                                 base_tup, [('trany', t_ans)])
+        d_ans, cond = unique_helper(c, 'drive', 'drive type', base_tup,
+                                    [('trany', t_ans), ('cylinders', c_ans)])
+        if d_ans:
+            cond += ' AND drive = ?'
+        add_tup = tuple(val for val in (t_ans, c_ans, d_ans) if val)
+        id_query = 'SELECT id FROM vehicles ' + WHERE_CMD + cond
+        id_ = c.execute(id_query, base_tup + add_tup).fetchone()[0]
+    c.close()
+    return id_
 
-        if t_ans in ['Not Sure', None]:
-            t_ans = ()
-        else:
-            trans, t_ans = ' AND trany = ?', (t_ans,)
-        c_uniq, c_results = unique_helper(cursor, 'cylinders', ans_tup, (trans, t_ans))
-        c_ans = q.select("Which matches your car's cylinder count?\n   ",
-                         choices=sorted(c_results) + ['Not Sure'], style=Style(S_CONFIG),
-                         qmark='\n⯁ ').skip_if(c_uniq).ask()
+def get_miles():
+    """
+    Asks user for estimation of their current weekly miles.
+    Used to calculate their emission.
 
-        if c_ans in ['Not Sure', None]:
-            c_ans = ()
-        else:
-            cyl, c_ans = ' AND cylinders = ?', (c_ans,)
-        d_uniq, d_results = unique_helper(cursor, 'drive', ans_tup, (trans + cyl, t_ans + c_ans))
-        d_ans = q.select("Which matches your car's drive type?\n   ",
-                         choices=sorted(d_results) + ['Not Sure'], style=Style(S_CONFIG),
-                         qmark='\n⯁ ').skip_if(d_uniq).ask()
-
-        if d_ans in ['Not Sure', None]:
-            d_ans = ()
-        else:
-            drive, d_ans = ' AND drive = ?', (d_ans,)
-    else:
-        t_ans = ()
-        c_ans = ()
-        d_ans = ()
-
-    vol_cmd = ' AND (pv2 != 0'
-    for vol in DATA_COLS[9:14]:
-        vol_cmd += f' OR {vol} != 0'
-    vol_cmd += ')'
-    id_query = 'SELECT id FROM vehicles ' + WHERE_CMD + trans + cyl + drive + vol_cmd
-    id_ = cursor.execute(id_query, ans_tup + t_ans + c_ans + d_ans).fetchone()
-    #print(id_query)
-
-    input_dict = {'id': id_[0],
-                  'make': make_ans,
-                  'model': model,
-                  'year': int(year),
-                  }
-    if t_ans:
-        input_dict['trany'] = t_ans[0].partition(' ')[0]
-
+    Returns:
+        dict: Pairs user's miles (str) with its value (float)
+    """
     use_miles = q.text('Estimation for weekly miles driven?\n   ',
                        validate=lambda text: txt_validator(text),
                        style=Style(S_CONFIG), qmark='\n⯁ ').ask()
-    
-    input_dict['use_miles'] = float(use_miles)
-    print('For debugging purposes:')
-    print(input_dict)
-    cursor.close()
+    return {'use_miles': float(use_miles)}
 
-    return input_dict
+def rank_pref():
+    """
+    Ranks vehicle attributes that user cares most about from their
+    current car. Uses this information to more accurately recommend
+    a new vehicle.
 
+    Returns:
+        dict: Pairs rank (int) with category (str)
+    """
+    CHOICES = ['Make', 'Year', 'Transmission', 'Vehicle Class', 'Fuel Type',
+               'Passenger capacity', 'Luggage Capacity', 'Stop Ranking']
+    q.print('We will now ask you to rank which attributes you like most '
+            'about your current vehicle.\nThese choices will be taken into '
+            'consideration for car recommendation.\nYou may rank until you '
+            "feel you have no more preferences or until you've exhausted all "
+            'options.', style=S_CONFIG[1][1])
 
-def rank_pref(conn, input_dict):
-    '''
-    '''
-    CHOICES = ['Make', 'Year', 'Vehicle Class', 'Fuel Type',  'Passenger capacity', 'Luggage Capacity', 'Stop Ranking']
-    if input_dict.get('trany'):
-        CHOICES.insert(2, 'Transmission')
-    q.print('We will now ask you to rank which attributes you like most about your current car.\n'
-            'These choices will be taken into consideration for car recommendation.\n'
-            "You may rank until you feel you have no more preferences or until you've exhausted all options.",
-            style=S_CONFIG[1][1])
     i = 1
     pref = ''
     ranking_dict = dict()
@@ -259,29 +274,19 @@ def rank_pref(conn, input_dict):
         i += 1
     if len(CHOICES) == 2:
         ranking_dict[i] = CHOICES[0]
-
     return ranking_dict
 
 
-def get_emissions(input_dict, vehicles):
-    make = input_dict["make"]
-    model = input_dict["model"]
-    year = input_dict["year"]
-    array = [make, model, year]
-
-    if input_dict["use_miles"]:
-        use = input_dict["use_miles"]
-    else:
-        use = input_dict["use_hours"]
-        use = MILES_PER_HOUR * use
-
-    s = "SELECT co2TailpipeGpm, co2TailpipeAGpm FROM vehicles " + WHERE_CMD
-
-    db = sqlite3.connect(vehicles)
-    c = db.cursor()
-    r = c.execute(s, array)
+def get_emissions(conn, id_, input_dict):
+    """
+    """
+    c = conn.cursor()
+    s = "SELECT co2TailpipeGpm, co2TailpipeAGpm FROM vehicles WHERE id = ?"
+    r = c.execute(s, (id_,))
     rv = r.fetchall()
-    db.close
+    c.close()
+
+    use = input_dict["use_miles"]
 
     if rv:
         gpm, agpm = rv[0]
@@ -379,7 +384,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
     alt_s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
              year, trany FROM vehicles" #to be potentially used later 
             
-    a = c.execute(s1, AVERAGE_CO2)
+    a = c.execute(s1, AVG_CO2)
 
     df = pd.DataFrame(a.fetchall(), columns=["id", "make","model", "pv2", \
         "pv4", "hpv", "lv2", "lv4", "hlv", "fuelType", "VClass", \
@@ -615,8 +620,12 @@ def get_car_prices(car_df, input_dict):
             old_car_price =int(m) 
         car_df.loc[i, "price"] = int(m) 
     
-    if old_car_price is not None:
-        car_df["difference"] = old_car_price - car_df.price[car_df.price != "N/A"]
+    old_car_price = q.text('No associated price could be found for your car.\n'
+                           'What do you believe your car is worth?',
+                           validate=lambda text: txt_validator(text),
+                           style=Style(S_CONFIG + [('qmark', 'fg:#CF5050')]),
+                           qmark='\n❗').skip_if(old_car_price is not None).ask()
+    car_df["difference"] = old_car_price - car_df.price[car_df.price != "N/A"]
 
     return car_df, old_car_price
 
@@ -632,17 +641,16 @@ def calculate_savings(car_df, old_car_price):
 
 
 def go():
-    '''
+    """
     Main program, takes users input (their current
     car and daily miles estimation) to compare their
     annual carbon emissions and spendings to that of
     other drivers. Program will then make recommendations
     of necessary milage reduction, or potential new car
     purchases/(public transportation use).
-    '''
+    """
     # Creates database if none already exists, skips this
     # computationally expensive processes otherwise.
-    # TODO: update local database efficiently if changes are made to url file
     try:
         conn = sqlite3.connect('file:cscc.db?mode=rw', uri=True)
     except sqlite3.OperationalError:
@@ -650,14 +658,16 @@ def go():
               'Creating database...')
         conn = sqlite3.connect('cscc.db')
         build_db(conn)
-    input_dict = get_user_input(conn)
+
+    id_ = get_id(conn)
+    input_dict = get_miles()
 
     # Calculate and print the emissions for debugging
-    emissions = get_emissions(input_dict, 'cscc.db')
+    emissions = get_emissions(conn, id_, input_dict)
     print('Yearly CO2 emission: ' + str(emissions) + ' grams.')
-    print()
+    input('Press any key to continue...')
 
-    ranking_dict = rank_pref(conn, input_dict)
+    ranking_dict = rank_pref()
     print('Debug ranking: ')
     print(ranking_dict)
 
