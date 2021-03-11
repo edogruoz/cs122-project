@@ -603,7 +603,7 @@ def get_car_prices(car_df, input_dict):
 
     for i, row in car_df.iterrows():
         make, possible_models, year = get_info_for_price(row)
-        if year < 1992 and i != len(new_df) - 1:
+        if year < 1992 and i != len(car_df) - 1:
             continue
         for j, model in enumerate(possible_models):
             myurl = "https://www.kbb.com/{}/{}/{}/".format(make, model, year)
