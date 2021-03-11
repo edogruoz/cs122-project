@@ -25,7 +25,7 @@ DATA_COLS = ['id', 'make', 'model', 'year', 'trany', 'drive', 'cylinders',
 
 WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 
-AVG_EMISSION = 4600000
+AVG_EMISSION = 4600000 #g/year
 AVG_CO2 = [89038.5]   #g/week
 CAR_LIMIT = 20 #number of cars to reduce to before checking prices, can lower
 MIN_LIMIT = 3
@@ -57,112 +57,6 @@ def build_db(connection):
     df = pd.read_csv(URL, usecols=DATA_COLS, index_col='id', engine='c')
     # IMPORTANT .to_sql cannot create a table with a primary key
     df.to_sql('vehicles', con=connection, if_exists='replace')
-
-
-# Used as questionary parameters to reject user input
-def autoc_validator(text, cursor, query):
-    """
-    Checks if the car details being inputted are valid,
-    does not let user submit if it isn't in the local database.
-
-    Parameters:
-        text (str): user's input, updates as it changes allowing
-            for real time validation, unlike python's input()
-        cursor (obj): cursor for database we will be querying
-        query (str): checked to determine what car detail to query
-            for validation, the make or the model and year
-
-    Returns:
-        bool: True if valid
-    
-    Raises:
-        ValidationError: Raises instead of returning False, this
-            allows for questionary to properly display validator msg
-    """
-    if query == 'make':
-        exists_query = 'SELECT EXISTS (SELECT 1 FROM vehicles WHERE make = ?)'
-    elif query == 'm_y':
-        exists_query = ('SELECT EXISTS (SELECT 1 FROM vehicles '
-                        'WHERE model || " " || year = ?)')
-    exists = cursor.execute(exists_query, (text,)).fetchone()[0]
-    if not exists:
-        raise ValidationError(
-            message='Current entry does not match database!'
-        )
-    return True
-
-
-def txt_validator(text):
-    """
-    Checks if use_miles is a non-negative number for
-    validation.
-
-    Parameters:
-        text (str): user's input, updates as it changes allowing
-            for real time validation, unlike python's input()
-
-    Returns:
-        bool: True if valid
-    
-    Raises:
-        ValidationError: Raises instead of returning False, this
-            allows for questionary to properly display validator msg
-    """
-    try:
-        if float(text) < 0:
-            raise ValidationError(
-                message='Entry must be non-negative!'
-            )
-    except ValueError:
-        raise ValidationError(
-            message='Entry must be a number!'
-        ) from ValueError
-    return True
-
-
-def unique_helper(c, col, col_desc, base_param, prev=[]):
-    """
-    Refines id search by checking if transmission, cylinder, or drive
-    data is enough to uniquely identify a given car.
-
-    Parameters:
-        c (obj): cursor for current connection to database
-        col (str): column we will query for uniqueness
-        col_desc (str): modifies question string to best fit
-            current query
-        base_param (tup): make, model, year used as filters for
-            query. These parameters are built upon as each
-            successive question provides new information
-        prev (lst): contains tuples of form
-            (prev col queried, prev unique_helper result)
-            needed so that later calls to this function may
-            use new information to refine its query
-    
-    Returns:
-        tup:ans (str) - the feature selected by the user that matches
-            their current car. Can also be None if there is only one
-            possible choice of that feature given the query
-            restrictions or if user is unsure
-            cond (str) - (used only the last time the function is
-            called) saves WHERE clause to be used outside the function
-    """
-    add_cond, param_tup = '', ()
-    prev = [tup for tup in prev if tup[1]]
-    if prev:
-        cond_tup, param_tup = zip(*prev)
-        for cond in cond_tup:
-            add_cond += f' AND {cond} = ?'
-    uniq_query = f'SELECT {col} FROM vehicles {WHERE_CMD} {add_cond}'
-    uniq_results = c.execute(uniq_query, base_param + param_tup).fetchall()
-    uniq_results = {str(tup[0]) for tup in uniq_results}
-    uniq = len(uniq_results) == 1
-    ans = q.select(f"Which matches your car's {col_desc}?\n   ",
-                         choices=sorted(uniq_results) + ['Not Sure'],
-                         style=Style(S_CONFIG),
-                         qmark='\n⯁ ').skip_if(uniq).ask()
-    if ans == 'Not Sure':
-        ans = None
-    return ans, add_cond
 
 
 def get_id(conn):
@@ -231,77 +125,158 @@ def get_id(conn):
     c.close()
     return id_
 
+
+def autoc_validator(text, cursor, query):
+    """
+    Checks if the car details being inputted are valid,
+    does not let user submit if it isn't in the local database.
+
+    Parameters:
+        text (str): user's input, updates as it changes allowing
+            for real time validation, unlike python's input()
+        cursor (obj): cursor for database we will be querying
+        query (str): checked to determine what car detail to query
+            for validation, the make or the model and year
+
+    Returns:
+        bool: True if valid
+    
+    Raises:
+        ValidationError: Raises instead of returning False, this
+            allows for questionary to properly display validator msg
+    """
+    if query == 'make':
+        exists_query = 'SELECT EXISTS (SELECT 1 FROM vehicles WHERE make = ?)'
+    elif query == 'm_y':
+        exists_query = ('SELECT EXISTS (SELECT 1 FROM vehicles '
+                        'WHERE model || " " || year = ?)')
+    exists = cursor.execute(exists_query, (text,)).fetchone()[0]
+    if not exists:
+        raise ValidationError(
+            message='Current entry does not match database!'
+        )
+    return True
+
+
+def unique_helper(c, col, col_desc, base_param, prev=[]):
+    """
+    Refines id search by checking if transmission, cylinder, or drive
+    data is enough to uniquely identify a given car.
+
+    Parameters:
+        c (obj): cursor for current connection to database
+        col (str): column we will query for uniqueness
+        col_desc (str): modifies question string to best fit
+            current query
+        base_param (tup): make, model, year used as filters for
+            query. These parameters are built upon as each
+            successive question provides new information
+        prev (lst): contains tuples of form
+            (prev col queried, prev unique_helper result)
+            needed so that later calls to this function may
+            use new information to refine its query
+    
+    Returns:
+        tup:ans (str) - the feature selected by the user that matches
+            their current car. Can also be None if there is only one
+            possible choice of that feature given the query
+            restrictions or if user is unsure
+            cond (str) - (used only the last time the function is
+            called) saves WHERE clause to be used outside the function
+    """
+    add_cond, param_tup = '', ()
+    prev = [tup for tup in prev if tup[1]]
+    if prev:
+        cond_tup, param_tup = zip(*prev)
+        for cond in cond_tup:
+            add_cond += f' AND {cond} = ?'
+    uniq_query = f'SELECT {col} FROM vehicles {WHERE_CMD} {add_cond}'
+    uniq_results = c.execute(uniq_query, base_param + param_tup).fetchall()
+    uniq_results = {str(tup[0]) for tup in uniq_results}
+    uniq = len(uniq_results) == 1
+    ans = q.select(f"Which matches your car's {col_desc}?\n   ",
+                         choices=sorted(uniq_results) + ['Not Sure'],
+                         style=Style(S_CONFIG),
+                         qmark='\n⯁ ').skip_if(uniq).ask()
+    if ans == 'Not Sure':
+        ans = None
+    return ans, add_cond
+
+
 def get_miles():
     """
     Asks user for estimation of their current weekly miles.
     Used to calculate their emission.
 
     Returns:
-        dict: Pairs user's miles (str) with its value (float)
+        float: user's estimated weekly milage
     """
     use_miles = q.text('Estimation for weekly miles driven?\n   ',
                        validate=lambda text: txt_validator(text),
                        style=Style(S_CONFIG), qmark='\n⯁ ').ask()
-    return {'use_miles': float(use_miles)}
+    return float(use_miles)
 
-def rank_pref():
+
+def txt_validator(text):
     """
-    Ranks vehicle attributes that user cares most about from their
-    current car. Uses this information to more accurately recommend
-    a new vehicle.
+    Checks if use_miles is a non-negative number for
+    validation.
+
+    Parameters:
+        text (str): user's input, updates as it changes allowing
+            for real time validation, unlike python's input()
 
     Returns:
-        dict: Pairs rank (int) with category (str)
+        bool: True if valid
+    
+    Raises:
+        ValidationError: Raises instead of returning False, this
+            allows for questionary to properly display validator msg
     """
-    CHOICES = ['Make', 'Year', 'Transmission', 'Vehicle Class', 'Fuel Type',
-               'Passenger capacity', 'Luggage Capacity', 'Stop Ranking']
-    q.print('We will now ask you to rank which attributes you like most '
-            'about your current vehicle.\nThese choices will be taken into '
-            'consideration for car recommendation.\nYou may rank until you '
-            "feel you have no more preferences or until you've exhausted all "
-            'options.', style=S_CONFIG[1][1])
-
-    i = 1
-    pref = ''
-    ranking_dict = dict()
-    while len(CHOICES) > 2:
-        pref = q.select('Choose preference: ', choices=CHOICES,
-                        style=Style(S_CONFIG), qmark='\n' + str(i)).ask()
-        if pref == 'Stop Ranking':
-            break
-        CHOICES.remove(pref)
-        ranking_dict[i] = pref
-        i += 1
-    if len(CHOICES) == 2:
-        ranking_dict[i] = CHOICES[0]
-    return ranking_dict
+    try:
+        if float(text) < 0:
+            raise ValidationError(
+                message='Entry must be non-negative!'
+            )
+    except ValueError:
+        raise ValidationError(
+            message='Entry must be a number!'
+        ) from ValueError
+    return True
 
 
-def get_emissions(conn, id_, input_dict):
+def get_emissions(conn, id_, use_miles):
     """
+    Retrieve yearly emissions for user's current vehicle based on
+    their usage estimation and their car's co2 g/mile.
+
+    Parameters:
+        conn (obj): connection to sqlite database we will be querying
+        id_ (int): unique identifier for user's current car
+        use_miles (float): estimation for user's weekly milage
+
+    Returns:
+        tup: yearly co2 emissions in grams and gpm for use in
+             get_recommendation
     """
     c = conn.cursor()
-    s = "SELECT co2TailpipeGpm, co2TailpipeAGpm FROM vehicles WHERE id = ?"
-    r = c.execute(s, (id_,))
-    rv = r.fetchall()
+    co2_query = ('SELECT co2TailpipeGpm, co2TailpipeAGpm '
+                 'FROM vehicles WHERE id = ?')
+    gpm, agpm = c.execute(co2_query, (id_,)).fetchone()
     c.close()
-
-    use = input_dict["use_miles"]
-
-    if rv:
-        gpm, agpm = rv[0]
-        if agpm == 0:
-            weekly_emission = gpm * use
-        else:
-            weekly_emission = ((gpm + agpm) / 2) * use
-        yearly_emission = weekly_emission * 52
-        return yearly_emission
-
-    # Raise error as there was nothing returned from the db
-    raise Error('No emission data found in the database for the given make and model.')
+    if not (gpm or agpm):
+        print('Electric Vehicle')
+        return 0.0, 0.0
+    if not agpm:
+        return 52 * gpm * use_miles, gpm
+    else:
+        avg_gpm = (gpm + agpm) / 2
+        return 52 * avg_gpm * use_miles, avg_gpm
 
 
 def get_recommendation(emission, gpm):
+    """
+    """
     rv = {}
     if emission < AVG_EMISSION:
         return
@@ -328,57 +303,54 @@ def get_recommendation(emission, gpm):
     return s
 
 
-def get_fuel_price(db, car_id, no_miles):
-    '''
-    Gives the money spent on fuel for a given car and
-    a given number of miles
-    '''
-    
-    s1 = "SELECT fuelCost08, fuelCostA08 FROM vehicles WHERE id = ?"
+def rank_pref():
+    """
+    Ranks vehicle attributes that user cares most about from their
+    current car. Uses this information to more accurately recommend
+    a new vehicle.
 
-    db = sqlite3.connect(db)
-    c = db.cursor()
-    r = c.execute(s1, [str(car_id)])
-    rv = r.fetchall()
-    db.close
+    Returns:
+        lst: elements are arranged in order of priority
+    """
+    CHOICES = ['Make', 'Year', 'Transmission', 'Vehicle Class', 'Fuel Type',
+               'Passenger capacity', 'Luggage Capacity', 'Stop Ranking']
+    DICT_MAP = {'Make': 'make', 'Year': 'year', 'Transmission': 'trany',
+                'Vehicle Class': 'VClass', 'Fuel Type': 'fuelType',
+                'Luggage Capacity': 'luggage_volume'}
+    q.print('We will now ask you to rank which attributes you like most '
+            'about your current vehicle.\nThese choices will be taken into '
+            'consideration for car recommendation.\nYou may rank until you '
+            "feel you have no more preferences or until you've exhausted all "
+            'options.', style=S_CONFIG[1][1])
 
-    fuel1_cost, fuel2_cost = rv[0]
-
-    if fuel2_cost:
-        cost = (fuel1_cost + fuel2_cost) / 2
-    else:
-        cost = fuel1_cost
-
-    return (cost / YEARLY_MILES) * no_miles
-
-
-def co2_emission(co2_1, co2_2, miles):
-    '''
-    Calculates co2 emissions with the given mile, 
-      to be used in sqlite
-    '''
-
-    if co2_2 != 0:
-        co2 = (co2_1 + co2_2)/2
-    else:
-        co2 = co2_1
-    
-    return co2 * miles
+    i = 1
+    pref = ''
+    rank_order = []
+    while len(CHOICES) > 2:
+        pref = q.select('Choose preference: ', choices=CHOICES,
+                        style=Style(S_CONFIG), qmark='\n' + str(i)).ask()
+        if pref == 'Stop Ranking':
+            break
+        CHOICES.remove(pref)
+        rank_order.append(pref)
+        i += 1
+    if len(CHOICES) == 2:
+        rank_order.append(CHOICES[0])
+    # Rename items in rank list to the less human readable col names
+    return list((pd.Series(rank_order)).map(DICT_MAP))
 
 
-def recommend_cars(db, input_dict, ranking_dict, id):
+def recommend_cars(conn, id_, use_miles, rank_order):
     '''
     Determines cars to recommend that have less than
     average emission and qualities input by the user
 
     '''
-    db = sqlite3.connect(db)
-    c = db.cursor()
-    db.create_function("co2_emission", 3, co2_emission)
-    miles = input_dict["use_miles"]
+    conn.create_function("co2_emission", 3, co2_emission)
+    c = conn.cursor()
 
     s1 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
-            co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(miles) + ") \
+            co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(use_miles) + ") \
             AS co2_emission, year, trany FROM vehicles WHERE co2_emission <= ?"
     
     alt_s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
@@ -392,7 +364,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
 
     s2 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year, trany FROM vehicles WHERE id = ?"
 
-    old_car = c.execute(s2, [str(id)])
+    old_car = c.execute(s2, [str(id_)])
     car_id, car_make, car_model, car_pv2, car_pv4, car_hpv, \
         car_lv2, car_lv4, car_hlv, car_fuelType, car_VClass, year, trany = old_car.fetchall()[0]
 
@@ -410,8 +382,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
 
     df = df.append(car_dict, ignore_index=True) #important for the price function for this to be the LAST row
     
-    for i in range(1, len(ranking_dict)+1):
-        of_interest = ranking_dict[i]
+    for of_interest in rank_order:
         if of_interest  in ["make", "VClass", "fuelType"]:
             new_df = df[df[of_interest] == match_dict[of_interest]]
         elif of_interest == "year":
@@ -425,7 +396,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
         else:
             if of_interest == "luggage_volume": #choosing the max for comparison to ignore entries of 0
                 if car_lv == 0:
-                    car_lv = get_volume(c, alt_s, id, "lv")
+                    car_lv = get_volume(c, alt_s, id_, "lv")
                 if car_lv == 0:
                     continue
                 df = process_df(df, "lv")
@@ -434,7 +405,7 @@ def recommend_cars(db, input_dict, ranking_dict, id):
                 ].max(axis=1) <= car_lv * 1.05)]
             else:
                 if car_pv == 0:
-                    car_pv = get_volume(c, alt_s, id, "pv")
+                    car_pv = get_volume(c, alt_s, id_, "pv")
                 if car_pv == 0:
                     continue
                 df = process_df(df, "pv")
@@ -448,42 +419,29 @@ def recommend_cars(db, input_dict, ranking_dict, id):
             break
     
     if len(df) > 20:  #dropping the original car, sampling, adding it again
-        df = df.drop(index=df[df["id"] == input_dict["id"]].index)
+        df = df.drop(index=df[df["id"] == id_].index)
         df = df.sample(n=20, random_state=1)
         df = df.append(car_dict, ignore_index=True)
+    c.close()
 
     return df
 
 
-def get_savings(db, input_dict, df, id):
+def co2_emission(co2_1, co2_2, miles):
     '''
-    Given a df from recommend_cars(), and the user's own car's id,
-    calculate the fuel costs and savings and add them to the df returned.
+    Calculates co2 emissions with the given mile, 
+      to be used in sqlite
     '''
-    new_df = pd.DataFrame()
-    miles = input_dict["use_miles"]
 
-    s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year, trany FROM vehicles WHERE id = ?"
-    old_weekly_cost = get_fuel_price(db, id, miles)
-    old_yearly_cost = old_weekly_cost * 52
-
-    for _, row in df.iterrows():
-        car_id = row['id']
-        weekly_cost = get_fuel_price(db, car_id, miles)
-        yearly_cost = weekly_cost * 52
-        weekly_savings = old_weekly_cost - weekly_cost
-        yearly_savings = old_yearly_cost - yearly_cost
-        new_row = row.copy()
-        new_row['weekly_cost'] = weekly_cost
-        new_row['yearly_cost'] = yearly_cost
-        new_row['weekly_savings'] = weekly_savings
-        new_row['yearly_savings'] = yearly_savings
-        new_df = new_df.append(new_row)
-
-    return new_df
+    if co2_2 != 0:
+        co2 = (co2_1 + co2_2)/2
+    else:
+        co2 = co2_1
+    
+    return co2 * miles
 
 
-def get_volume(cursor, string, id, type_):
+def get_volume(c, string, id_, type_):
     '''
     Get luggage or passenger volume of the input car if it is missing
     '''
@@ -492,13 +450,13 @@ def get_volume(cursor, string, id, type_):
     else:
         lst = ["pv2", "pv4", "hpv"]
 
-    b = cursor.execute(string)
+    b = c.execute(string)
     new_df = pd.DataFrame(b.fetchall(), columns = ["id", "make", \
         "model", "pv2", "pv4", "hpv", "lv2", "lv4", "hlv", \
         "fuelType", "VClass", "year", "trany"])
-    row = new_df[new_df["id"] == id]
+    row = new_df[new_df["id"] == id_]
     new_df = process_df(new_df, type_, row)
-    new_row = new_df[new_df["id"] == id]
+    new_row = new_df[new_df["id"] == id_]
     car_v = new_row[lst].max(axis=1).item()
 
     return car_v
@@ -561,28 +519,63 @@ def helper_process_df(df, df2, type_):
     return df
 
 
-def get_info_for_price(data_str):
+def get_savings(conn, id_, use_miles, df):
     '''
-    data_str: dictionary or pandas df row
+    Given a df from recommend_cars(), and the user's own car's id,
+    calculate the fuel costs and savings and add them to the df returned.
     '''
-    make = data_str["make"]
-    model_lst = data_str["model"].split()
-    possible_models = ["-".join(model_lst).lower(), model_lst[0].lower()]
-    if len(model_lst) >= 2:
-            possible_models +=  ["-".join(model_lst[:2]).lower()]
-    year = int(data_str["year"])
+    new_df = pd.DataFrame()
 
-    return make, possible_models, year
+    s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year, trany FROM vehicles WHERE id = ?"
+    old_weekly_cost = get_fuel_price(conn, id_, use_miles)
+    old_yearly_cost = old_weekly_cost * 52
+
+    for _, row in df.iterrows():
+        car_id = row['id']
+        weekly_cost = get_fuel_price(conn, car_id, use_miles)
+        yearly_cost = weekly_cost * 52
+        weekly_savings = old_weekly_cost - weekly_cost
+        yearly_savings = old_yearly_cost - yearly_cost
+        new_row = row.copy()
+        new_row['weekly_cost'] = weekly_cost
+        new_row['yearly_cost'] = yearly_cost
+        new_row['weekly_savings'] = weekly_savings
+        new_row['yearly_savings'] = yearly_savings
+        new_df = new_df.append(new_row)
+
+    return new_df
 
 
-def get_car_prices(car_df, input_dict):
+def get_fuel_price(conn, id_, use_miles):
+    '''
+    Gives the money spent on fuel for a given car and
+    a given number of miles
+    '''
+    
+    s1 = "SELECT fuelCost08, fuelCostA08 FROM vehicles WHERE id = ?"
+
+    c = conn.cursor()
+    r = c.execute(s1, [str(id_)])
+    rv = r.fetchall()
+    c.close()
+
+    fuel1_cost, fuel2_cost = rv[0]
+
+    if fuel2_cost:
+        cost = (fuel1_cost + fuel2_cost) / 2
+    else:
+        cost = fuel1_cost
+
+    return (cost / YEARLY_MILES) * use_miles
+
+
+def get_car_prices(car_df):
     '''
     Crawls prices for the recommended cars and the user's car
       from kbb. 
     
     Inputs:
         car_df (pd.DataFrame): dataframe of cars to be recommended
-        input_dict
     
     Returns:
         price_dict (dict): a dictionary with car id as the key and a 
@@ -603,7 +596,7 @@ def get_car_prices(car_df, input_dict):
 
     for i, row in car_df.iterrows():
         make, possible_models, year = get_info_for_price(row)
-        if year < 1992 and i != len(new_df) - 1:
+        if year < 1992 and i != len(car_df) - 1:
             continue
         for j, model in enumerate(possible_models):
             myurl = "https://www.kbb.com/{}/{}/{}/".format(make, model, year)
@@ -624,10 +617,26 @@ def get_car_prices(car_df, input_dict):
                            'What do you believe your car is worth?',
                            validate=lambda text: txt_validator(text),
                            style=Style(S_CONFIG + [('qmark', 'fg:#CF5050')]),
-                           qmark='\n❗').skip_if(old_car_price is not None).ask()
+                           qmark='\n❗').skip_if(old_car_price is not None,
+                                                old_car_price).ask()
     car_df["difference"] = old_car_price - car_df.price[car_df.price != "N/A"]
 
     return car_df, old_car_price
+
+
+def get_info_for_price(data_str):
+    '''
+    data_str: dictionary or pandas df row
+    '''
+    make = data_str["make"]
+    model_lst = data_str["model"].split()
+    possible_models = ["-".join(model_lst).lower(), model_lst[0].lower()]
+    if len(model_lst) >= 2:
+            possible_models +=  ["-".join(model_lst[:2]).lower()]
+    year = int(data_str["year"])
+
+    return make, possible_models, year
+
 
 def calculate_savings(car_df, old_car_price):
 
@@ -660,16 +669,24 @@ def go():
         build_db(conn)
 
     id_ = get_id(conn)
-    input_dict = get_miles()
+    use_miles = get_miles()
+    print(id_)
 
-    # Calculate and print the emissions for debugging
-    emissions = get_emissions(conn, id_, input_dict)
-    print('Yearly CO2 emission: ' + str(emissions) + ' grams.')
+    emissions, gpm = get_emissions(conn, id_, use_miles)
+    reduce_str = get_recommendation(emissions, gpm)
+    print(f'Yearly CO2 emission: {emissions} grams.')
+    print(reduce_str)
     input('Press any key to continue...')
 
-    ranking_dict = rank_pref()
+    rank_order = rank_pref()
     print('Debug ranking: ')
-    print(ranking_dict)
+    print(rank_order)
+    rec_df = recommend_cars(conn, id_, use_miles, rank_order)
+    print('Calculating recommendations...')
+    df_with_savings = get_savings(conn, id_, use_miles, rec_df)
+    df_with_prices, old_car_price = get_car_prices(df_with_savings)
+    final_df = calculate_savings(df_with_prices, old_car_price)
+    print(final_df)
 
     conn.close()
 
