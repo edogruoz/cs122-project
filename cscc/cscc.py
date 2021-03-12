@@ -590,6 +590,7 @@ def get_savings(conn, id_, use_miles, df):
     '''
     Given a df from recommend_cars(), and the user's own car's id,
     calculate the fuel costs and savings and add them to the df returned.
+    
     '''
     new_df = pd.DataFrame()
 
