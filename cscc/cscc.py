@@ -590,6 +590,7 @@ def get_savings(conn, id_, use_miles, df):
     '''
     Given a df from recommend_cars(), and the user's own car's id,
     calculate the fuel costs and savings and add them to the df returned.
+    
     '''
     new_df = pd.DataFrame()
 
@@ -783,7 +784,7 @@ def go():
     print('Debug ranking: ')
     print(rank_order)
     rec_df = recommend_cars(conn, id_, use_miles, rank_order, gpm)
-    if isinstance(rec_df, string):
+    if isinstance(rec_df, str):
         final_df = rec_df
     else:
         print('Calculating recommendations...')
