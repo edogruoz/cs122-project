@@ -611,16 +611,16 @@ def get_car_prices(car_df):
         price_text = soup.find_all("script", attrs={"data-rh":"true"})[-1].text
         m =  re.findall('"price":"([0-9]+)"', price_text)[0]
         if i == len(car_df) - 1:
-            old_car_price =int(m) 
-        car_df.loc[i, "price"] = int(m) 
+            old_car_price = m
+        car_df.loc[i, "price"] = float(m)
     
-    old_car_price = q.text('No associated price could be found for your car.\n'
-                           'What do you believe your car is worth?',
+    old_car_price = q.text('No associated price could be found for your car.'
+                           '\n   What do you believe your car is worth?\n   ',
                            validate=lambda text: txt_validator(text),
                            style=Style(S_CONFIG + [('qmark', 'fg:#CF5050')]),
                            qmark='\n❗').skip_if(old_car_price is not None,
                                                 old_car_price).ask()
-    car_df["difference"] = old_car_price - car_df.price[car_df.price != "N/A"]
+    car_df["difference"] = float(old_car_price) - car_df.price[car_df.price != "N/A"]
 
     return car_df, old_car_price
 
