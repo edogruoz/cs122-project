@@ -672,13 +672,10 @@ def get_car_prices(car_df):
         if year < 1992 and i != len(car_df) - 1:
             continue
         for j, model in enumerate(possible_models):
-            print(make, model, year)
             myurl = "https://www.kbb.com/{}/{}/{}/".format(make, model, year)
             html = pm.urlopen(url=myurl, method="GET").data
             soup = bs4.BeautifulSoup(html, features="html.parser")
-            print("hey")
             title = soup.find_all("title")[0].text
-            print("title")
             if ("Find Your Perfect Car" not in title) and ("Kelley Blue Book | Error" not in title):
                 break
         if ("Find Your Perfect Car" in title) or ("Kelley Blue Book | Error" in title) or (str(year) not in title):
