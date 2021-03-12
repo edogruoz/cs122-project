@@ -1,11 +1,13 @@
 
 README.txt: this file
 
+README.md: our proposal
+
 cscc.py: python file with our code
 
 cscc.db: file with the database
 
-Key for Reading the Car Recommendations Dataframe
+Key for Reading the Car Recommendations Dataframe:
 
 make: brand of the recommended car
 model: model of the recommended car
