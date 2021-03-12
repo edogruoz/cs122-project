@@ -783,7 +783,7 @@ def go():
     print('Debug ranking: ')
     print(rank_order)
     rec_df = recommend_cars(conn, id_, use_miles, rank_order, gpm)
-    if isinstance(rec_df, string):
+    if isinstance(rec_df, str):
         final_df = rec_df
     else:
         print('Calculating recommendations...')
