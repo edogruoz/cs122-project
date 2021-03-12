@@ -703,6 +703,8 @@ def get_car_prices(car_df):
                                                 old_car_price).ask()
     car_df["difference"] = float(old_car_price) - car_df.price[car_df.price != "N/A"]
 
+    car_df = car_df.drop(car_df.tail(1).index)
+
     return car_df, old_car_price
 
 
@@ -746,6 +748,8 @@ def calculate_savings(car_df, old_car_price):
           with added five year saving column
     '''
 
+    car_df = car_df.astype({"year":"int32"})
+    
     car_df.loc[:, "five_year_savings"] = 0
 
     car_df.loc[car_df.difference.notna(), "five_year_savings" ] = \
@@ -801,15 +805,15 @@ def go():
         df_with_prices, old_car_price = get_car_prices(df_with_savings)
         full_df = calculate_savings(df_with_prices, old_car_price)
     col = (['make', 'model', 'year']
-           + ['co2_emission', 'weekly_savings', 'yearly_savings', 'price',
-              'difference', 'five_year_savings'])
+            + ['co2_emission', 'weekly_savings', 'yearly_savings', 'price',
+                'difference', 'five_year_savings'])
     final_df = full_df[col]
     final_df = final_df.sort_values('co2_emission')
     print(final_df.to_string(index=False, max_colwidth=20,
-                             float_format=lambda x: f'{x:.2f}'))
+                                float_format=lambda x: f'{x:.2f}'))
 
     conn.close()
 
-    
+
 if __name__ == "__main__":
     go()
