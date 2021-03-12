@@ -12,6 +12,7 @@ import certifi
 import sqlite3
 from sqlite3.dbapi2 import Error
 import pandas as pd
+import numpy as np
 
 import questionary as q
 from questionary import ValidationError
@@ -604,10 +605,10 @@ def get_savings(conn, id_, use_miles, df):
     old_weekly_cost = get_fuel_price(id_, conn, use_miles)
     old_yearly_cost = old_weekly_cost * 52
 
-    df.loc[:, "weekly_cost"] = df.id.apply(get_fuel_price, args=(conn, 400))
+    df.loc[:, "weekly_cost"] = df.id.apply(get_fuel_price, args=(conn, use_miles))
     df.loc[:, "yearly_cost"] = df.loc[:, "weekly_cost"] * 52
-    df.loc[:, "weekly_savings"] = old_weekly_cost - df.loc[:, "yearly_cost"]
-    df.loc[:, "weekly_savings"] = old_yearly_cost - df.loc[:, "yearly_cost"]
+    df.loc[:, "weekly_savings"] = old_weekly_cost - df.loc[:, "weekly_cost"]
+    df.loc[:, "yearly_savings"] = old_yearly_cost - df.loc[:, "yearly_cost"]
 
     return df
 
@@ -656,7 +657,7 @@ def get_car_prices(car_df):
         old_car_price (float): price of the user's current car
     ''' 
 
-    car_df["price"] = "N/A"
+    car_df["price"] = np.nan
 
     pm = urllib3.PoolManager(
        cert_reqs='CERT_REQUIRED',
@@ -691,7 +692,7 @@ def get_car_prices(car_df):
                            style=Style(S_CONFIG + [('qmark', 'fg:#CF5050')]),
                            qmark='\n❗').skip_if(old_car_price is not None,
                                                 old_car_price).ask()
-    car_df["difference"] = float(old_car_price) - car_df.price[car_df.price != "N/A"]
+    car_df["difference"] = float(old_car_price) - car_df.price[car_df.price.notna()]
 
     car_df = car_df.drop(car_df.tail(1).index)
     
@@ -705,7 +706,7 @@ def get_info_for_price(data_str):
       price crawling
 
     Parameters:
-        row: a row of pandas dataframe
+        data_str: a row of pandas dataframe
 
     Returns:
         make (str): make of the car
