@@ -593,6 +593,7 @@ def get_car_prices(car_df):
     
     old_car_price = None
     car_df = car_df.reset_index()
+    car_df.loc[:, "model"] = car_df.loc[:, "model"].str.replace("/", " ")
 
     for i, row in car_df.iterrows():
         make, possible_models, year = get_info_for_price(row)
@@ -629,6 +630,7 @@ def get_info_for_price(data_str):
     data_str: dictionary or pandas df row
     '''
     make = data_str["make"]
+    model_ = data_str["model"]
     model_lst = data_str["model"].split()
     possible_models = ["-".join(model_lst).lower(), model_lst[0].lower()]
     if len(model_lst) >= 2:
@@ -640,11 +642,14 @@ def get_info_for_price(data_str):
 
 def calculate_savings(car_df, old_car_price):
 
-    car_df["five_year_savings"] = 0
-    car_df.five_year_savings[car_df.difference.notna()] = car_df.difference[car_df.difference.notna()] + \
-            car_df.yearly_savings[car_df.difference.notna()] * 5
-    
-    car_df.five_year_savings[car_df.difference.isna()] = car_df.yearly_savings[car_df.difference.isna()] * 5
+    car_df.loc[:, "five_year_savings"] = 0
+
+    car_df.loc[car_df.difference.notna(), "five_year_savings" ] = \
+        car_df.loc[car_df.difference.notna(), "difference" ] + \
+            car_df.loc[car_df.difference.notna(), "yearly_savings"] * 5
+
+    car_df.loc[car_df.difference.isna(), "five_year_savings" ] = \
+         car_df.loc[car_df.difference.isna(), "yearly_savings"] * 5
 
     return car_df
 
