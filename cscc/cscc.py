@@ -590,7 +590,15 @@ def get_savings(conn, id_, use_miles, df):
     '''
     Given a df from recommend_cars(), and the user's own car's id,
     calculate the fuel costs and savings and add them to the df returned.
+
+    Parameters:
+        conn (obj): connection to sqlite database we will be querying
+        id_ (int): unique identifier for user's current car
+        use_miles (float): estimation for user's weekly milage
+        df (df): filtered dataframe of recommended cars we will add to
     
+    Returns:
+        df: same dataframe with new columns
     '''
     new_df = pd.DataFrame()
 
@@ -715,7 +723,6 @@ def get_info_for_price(data_str):
     '''
 
     make = data_str["make"]
-    model_ = data_str["model"]
     model_lst = data_str["model"].split()
     possible_models = ["-".join(model_lst).lower(), model_lst[0].lower()]
     if len(model_lst) >= 2:
@@ -757,8 +764,8 @@ def go():
     car and daily miles estimation) to compare their
     annual carbon emissions and spendings to that of
     other drivers. Program will then make recommendations
-    of necessary milage reduction, or potential new car
-    purchases/(public transportation use).
+    of necessary milage reduction and potential new car
+    purchases.
     """
     # Creates database if none already exists, skips this
     # computationally expensive processes otherwise.
@@ -772,16 +779,14 @@ def go():
 
     id_ = get_id(conn)
     use_miles = get_miles()
-    print(id_)
 
     emissions, gpm = get_emissions(conn, id_, use_miles)
     reduce_str = get_cut_recommendation(emissions, gpm)
-    print(f'Yearly CO2 emission: {emissions} grams.')
+    print(f'\nYearly CO2 emission: {emissions} grams.')
     print(reduce_str)
-    input('Press any key to continue...')
+    input('Press any key to continue...\n')
 
     rank_order = rank_pref()
-    print('Debug ranking: ')
     print(rank_order)
     rec_df = recommend_cars(conn, id_, use_miles, rank_order, gpm)
     if isinstance(rec_df, str):
@@ -794,8 +799,24 @@ def go():
             print("Here are some cars that would help you  decrease your carbon emission to the average:")
         df_with_savings = get_savings(conn, id_, use_miles, rec_df)
         df_with_prices, old_car_price = get_car_prices(df_with_savings)
-        final_df = calculate_savings(df_with_prices, old_car_price)
-    print(final_df)
+        full_df = calculate_savings(df_with_prices, old_car_price)
+    rank_order = rank_order[:3]
+    if 'make' in rank_order:
+        rank_order.remove('make')
+    if 'year' in rank_order:
+        rank_order.remove('year')
+    if 'luggage_volume' in rank_order:
+        rank_order.remove('luggage_volume')
+    if 'Passenger capacity' in rank_order:
+        rank_order.remove('Passenger capacity')
+    col = (['make', 'model', 'year']
+           + rank_order
+           + ['co2_emission', 'weekly_savings', 'yearly_savings', 'price',
+              'difference', 'five_year_savings'])
+    final_df = full_df[col]
+    final_df = final_df.sort_values('co2_emission')
+    print(final_df.to_string(index=False, max_colwidth=20,
+                             float_format=lambda x: f'{x:.2f}'))
 
     conn.close()
 
