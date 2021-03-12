@@ -749,7 +749,6 @@ def calculate_savings(car_df, old_car_price):
     '''
 
     car_df = car_df.astype({"year":"int32"})
-    
     car_df.loc[:, "five_year_savings"] = 0
 
     car_df.loc[car_df.difference.notna(), "five_year_savings" ] = \
