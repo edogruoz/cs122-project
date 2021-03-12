@@ -723,6 +723,7 @@ def get_info_for_price(data_str):
     possible_models = [model_lst[0].lower(), "-".join(model_lst).lower(),]
     if len(model_lst) >= 2:
             possible_models +=  ["-".join(model_lst[:2]).lower()]
+    
     year = int(data_str["year"])
 
     return make, possible_models, year
