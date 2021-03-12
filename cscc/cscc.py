@@ -26,7 +26,7 @@ DATA_COLS = ['id', 'make', 'model', 'year', 'trany', 'drive', 'cylinders',
 WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 
 AVG_EMISSION = 4600000 #g/year
-AVG_CO2 = [89038.5]   #g/week
+AVG_CO2 = 89038.5   #g/week
 CAR_LIMIT = 20 #number of cars to reduce to before checking prices, can lower
 MIN_LIMIT = 3
 YEARLY_MILES = 15000
@@ -350,23 +350,42 @@ def rank_pref():
     return list((pd.Series(rank_order)).map(DICT_MAP))
 
 
-def recommend_cars(conn, id_, use_miles, rank_order):
+def recommend_cars(conn, id_, use_miles, rank_order, gpm):
     '''
-    Determines cars to recommend that have less than
-    average emission and qualities input by the user
+    Determines and returns a list of cars to recommend that have less than
+      average CO2 emissions with the number of miles inputted by the user.
+      It filters for cars that are similar to the user's current car
+      in terms of the attributes they choose 
 
+    Parameters:
+        conn (obj): connection to sqlite database we will be querying
+        id_ (int): unique identifier for user's current car
+        use_miles (float): estimation for user's weekly milage, 
+          inputted by the user
+        rank_order (lst): ordered list of attributes that the user
+          cares most about from their current car and wants to be present
+          in their new car
+        gpm (float): grams of CO2 emitted per mile by the current car of the 
+          user
+    
+    Returns:
+        df (pandas.DataFrame): dataframe with cars to recommend
     '''
+
     conn.create_function("co2_emission", 3, co2_emission)
     c = conn.cursor()
 
+    current_co2 = (gpm * use_miles)
+
     s1 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
             co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(use_miles) + ") \
-            AS co2_emission, year, trany FROM vehicles WHERE co2_emission <= ?"
+            AS co2_emission, year, trany FROM vehicles WHERE co2_emission <= ? AND co2_emission < ?"
     
     alt_s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
              year, trany FROM vehicles" #to be potentially used later 
             
-    a = c.execute(s1, AVG_CO2)
+    params = [AVG_CO2, current_co2]
+    a = c.execute(s1, params)
 
     df = pd.DataFrame(a.fetchall(), columns=["id", "make","model", "pv2", \
         "pv4", "hpv", "lv2", "lv4", "hlv", "fuelType", "VClass", \
@@ -439,8 +458,21 @@ def recommend_cars(conn, id_, use_miles, rank_order):
 
 def co2_emission(co2_1, co2_2, miles):
     '''
-    Calculates co2 emissions with the given mile, 
-      to be used in sqlite
+    Calculates co2 emissions with the given number of miles
+      based on an average value, to be used in the sqlite database
+    
+    Parameters:
+        co2_1 (float): emitted CO2 in grams/mile for 
+          for the fuel type 1. If the car uses only 1 type
+          of fuel, this is the only CO2 emission value
+        co2_2 (float): emitted CO2 in grams/mile for 
+          for the fuel type 1
+        miles (float): estimation for user's weekly milage, 
+          inputted by the user
+    
+    Returns:
+        float: gramse of CO2 emitted with the number of miles
+          user inputted
     '''
 
     if co2_2 != 0:
@@ -583,6 +615,11 @@ def get_fuel_price(conn, id_, use_miles):
     '''
     Gives the money spent on fuel for a given car and
     a given number of miles
+
+    conn (obj): connection to sqlite database we will be querying
+    id_ (int): unique identifier a car
+    use_miles (float): estimation for user's weekly milage, 
+        inputted by the user
     '''
     
     s1 = "SELECT fuelCost08, fuelCostA08 FROM vehicles WHERE id = ?"
@@ -605,19 +642,19 @@ def get_fuel_price(conn, id_, use_miles):
 def get_car_prices(car_df):
     '''
     Crawls prices for the recommended cars and the user's car
-      from kbb. 
+      from kbb and adds them as columns to the inputted dataframe. Tries
+      different options for model names to find a match and asks
+      the user for an estimation if the price for their old car is not found
     
     Inputs:
         car_df (pd.DataFrame): dataframe of cars to be recommended
     
     Returns:
-        price_dict (dict): a dictionary with car id as the key and a 
-          tuple of (make, model, year, price) as the value
-        no_price_found (dict): a dictionary with car id as the key and a 
-          tuple of (make, model, year) as the value for cars whose 
-          prices could not be found in kbb
-        old_car_price: price of the user's own car, None if not found
-    '''
+        car_df (pd.DataFrame): dataframe of cars to be recommended
+          with the added price and difference columns
+        old_car_price (float): price of the user's current car
+    ''' 
+
     car_df["price"] = "N/A"
 
     pm = urllib3.PoolManager(
@@ -660,8 +697,20 @@ def get_car_prices(car_df):
 
 def get_info_for_price(data_str):
     '''
-    data_str: dictionary or pandas df row
+    Extracts the needed information (make, model, year)
+      from the given row of the dataframe to use for 
+      price crawling
+
+    Parameters:
+        row: a row of pandas dataframe
+
+    Returns:
+        make (str): make of the car
+        possible_models (lst): list of possible model names
+          to try and crawl price from kbb
+        year (int): year the car was made
     '''
+
     make = data_str["make"]
     model_ = data_str["model"]
     model_lst = data_str["model"].split()
@@ -674,6 +723,18 @@ def get_info_for_price(data_str):
 
 
 def calculate_savings(car_df, old_car_price):
+    '''
+    Calculates the 5-year savings of the user, taking both
+      fuel prices and car prices into account
+    
+    Parameters:
+        car_df (pd.DataFrame): dataframe of cars to be recommended
+        old_car_price (float): price of the user's current car
+
+    Returns:
+        car_df (pd.DataFrame): dataframe of cars to be recommended
+          with added five year saving column
+    '''
 
     car_df.loc[:, "five_year_savings"] = 0
 
@@ -719,7 +780,7 @@ def go():
     rank_order = rank_pref()
     print('Debug ranking: ')
     print(rank_order)
-    rec_df = recommend_cars(conn, id_, use_miles, rank_order)
+    rec_df = recommend_cars(conn, id_, use_miles, rank_order, gpm)
     print('Calculating recommendations...')
     df_with_savings = get_savings(conn, id_, use_miles, rec_df)
     df_with_prices, old_car_price = get_car_prices(df_with_savings)
