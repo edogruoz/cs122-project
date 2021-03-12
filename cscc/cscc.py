@@ -704,7 +704,6 @@ def get_car_prices(car_df):
     car_df["difference"] = float(old_car_price) - car_df.price[car_df.price != "N/A"]
 
     car_df = car_df.drop(car_df.tail(1).index)
-
     return car_df, old_car_price
 
 
