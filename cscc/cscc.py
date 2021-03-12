@@ -257,7 +257,7 @@ def get_emissions(conn, id_, use_miles):
 
     Returns:
         tup: yearly co2 emissions in grams and gpm for use in
-             get_recommendation
+             get_cut_recommendation
     """
     c = conn.cursor()
     co2_query = ('SELECT co2TailpipeGpm, co2TailpipeAGpm '
@@ -274,7 +274,7 @@ def get_emissions(conn, id_, use_miles):
         return 52 * avg_gpm * use_miles, avg_gpm
 
 
-def get_recommendation(emission, gpm):
+def get_cut_recommendation(emission, gpm):
     """
     Get recommendation string for how much less the user has to drive per week
     to meet the average carbon emission value.
@@ -774,7 +774,7 @@ def go():
     print(id_)
 
     emissions, gpm = get_emissions(conn, id_, use_miles)
-    reduce_str = get_recommendation(emissions, gpm)
+    reduce_str = get_cut_recommendation(emissions, gpm)
     print(f'Yearly CO2 emission: {emissions} grams.')
     print(reduce_str)
     input('Press any key to continue...')
@@ -787,6 +787,10 @@ def go():
         final_df = rec_df
     else:
         print('Calculating recommendations...')
+        if emissions < AVG_EMISSION:
+            print("Here are some cars that would help you further decrease your carbon emission:")
+        else:
+            print("Here are some cars that would help you  decrease your carbon emission to the average:")
         df_with_savings = get_savings(conn, id_, use_miles, rec_df)
         df_with_prices, old_car_price = get_car_prices(df_with_savings)
         final_df = calculate_savings(df_with_prices, old_car_price)
