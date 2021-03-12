@@ -18,18 +18,17 @@ import questionary as q
 from questionary import ValidationError
 from questionary import Style
 
-URL = "https://www.fueleconomy.gov/feg/epadata/vehicles.csv"
 
+URL = "https://www.fueleconomy.gov/feg/epadata/vehicles.csv"
 DATA_COLS = ['id', 'make', 'model', 'year', 'trany', 'drive', 'cylinders',
              'VClass', 'pv2', 'pv4', 'hpv', 'lv2', 'lv4', 'hlv', 'fuelCost08',
              'fuelCostA08', 'fuelType', 'co2TailpipeGpm', 'co2TailpipeAGpm']
-
 WHERE_CMD = "WHERE make = ? AND model = ? AND year = ?"
 
 AVG_EMISSION = 4600000 #g/year
-AVG_CO2 = 89038.5   #g/week
 CAR_LIMIT = 20 #number of cars to reduce to before checking prices, can lower
 MIN_LIMIT = 3
+WEEKS_IN_YEAR = 52
 YEARLY_MILES = 15000
 
 # Style options for terminal questions
@@ -269,10 +268,10 @@ def get_emissions(conn, id_, use_miles):
         print('\nElectric Vehicle')
         return 0.0, 0.0
     if not agpm:
-        return 52 * gpm * use_miles, gpm
+        return WEEKS_IN_YEAR * gpm * use_miles, gpm
     else:
         avg_gpm = (gpm + agpm) / 2
-        return 52 * avg_gpm * use_miles, avg_gpm
+        return WEEKS_IN_YEAR * avg_gpm * use_miles, avg_gpm
 
 
 def get_cut_recommendation(emission, gpm):
@@ -294,10 +293,10 @@ def get_cut_recommendation(emission, gpm):
     rv["percent"] = (str(round((emission - AVG_EMISSION) / emission * 100, 1))
                      + " percent")
     rv["per year,"] = str(round((emission - AVG_EMISSION)/gpm, 1)) + " miles"
-    rv["per month,"] = (str(round((emission/12 - AVG_EMISSION/12)/gpm, 1))
+    rv["per month,"] = (str(round(((emission - AVG_EMISSION)/12)/gpm, 1))
                         + " miles")
-    rv["per week"] = (str(round((emission/52 - AVG_EMISSION/52)/gpm, 1))
-                      + " miles")
+    rv["per week"] = (str(round((emission - AVG_EMISSION)/WEEKS_IN_YEAR
+                                 / gpm, 1)) + " miles")
 
     l = ["On", "average,", "you", "should", "drive"]
     l2 = ["less"]
@@ -389,7 +388,7 @@ def recommend_cars(conn, id_, use_miles, rank_order, gpm):
     alt_s = ('SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, '
              'fuelType, VClass, year, trany FROM vehicles') #to be potentially used later
             
-    params = [AVG_CO2, current_co2]
+    params = [AVG_EMISSION / WEEKS_IN_YEAR, current_co2]
     a = c.execute(s1, params)
 
     df = pd.DataFrame(a.fetchall(),
@@ -620,13 +619,11 @@ def get_savings(conn, id_, use_miles, df):
     Returns:
         df: same dataframe with new columns
     """
-    s = ('SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, '
-         'VClass, year, trany FROM vehicles WHERE id = ?')
     old_weekly_cost = get_fuel_price(id_, conn, use_miles)
-    old_yearly_cost = old_weekly_cost * 52
+    old_yearly_cost = old_weekly_cost * WEEKS_IN_YEAR
     df.loc[:, "weekly_cost"] = df.id.apply(get_fuel_price,
                                            args=(conn, use_miles))
-    df.loc[:, "yearly_cost"] = df.loc[:, "weekly_cost"] * 52
+    df.loc[:, "yearly_cost"] = df.loc[:, "weekly_cost"] * WEEKS_IN_YEAR
     df.loc[:, "weekly_savings"] = old_weekly_cost - df.loc[:, "weekly_cost"]
     df.loc[:, "yearly_savings"] = old_yearly_cost - df.loc[:, "yearly_cost"]
     return df
@@ -690,8 +687,8 @@ def get_car_prices(car_df):
         make, possible_models, year = get_info_for_price(row)
         if year < 1992 and i != len(car_df) - 1:
             continue
-        for j, model in enumerate(possible_models):
-            myurl = "https://www.kbb.com/{}/{}/{}/".format(make, model, year)
+        for _, model in enumerate(possible_models):
+            myurl = f"https://www.kbb.com/{make}/{model}/{year}/"
             html = pm.urlopen(url=myurl, method="GET").data
             soup = bs4.BeautifulSoup(html, features="html.parser")
             title = soup.find_all("title")[0].text
@@ -796,8 +793,9 @@ def go():
 
     emissions, gpm = get_emissions(conn, id_, use_miles)
     reduce_str = get_cut_recommendation(emissions, gpm)
-    print(f'\nYearly CO2 emission: {emissions} grams.')
-    print(reduce_str)
+    q.print(f'\nYearly CO2 emission: {emissions} grams.',
+            style=S_CONFIG[1][1])
+    q.print(reduce_str, style=S_CONFIG[1][1])
     input('Press any key to continue...\n')
 
     rank_order = rank_pref()
@@ -805,20 +803,22 @@ def go():
     if isinstance(rec_df, str):
         final_df = rec_df
     else:
-        print('Calculating recommendations...')
+        q.print('\nCalculating recommendations...', style=S_CONFIG[1][1])
         if emissions < AVG_EMISSION:
-            print('Here are some cars that would help you further decrease '
-                  'your carbon emission:')
+            q.print('Here are some cars that would help you further decrease '
+                    'your carbon emission:', style=S_CONFIG[1][1])
         else:
-            print('Here are some cars that would help you decrease your '
-                  'carbon emission to the average:')
+            q.print('Here are some cars that would help you decrease your '
+                    'carbon emission to the average:',
+                    style=S_CONFIG[1][1])
         df_with_savings = get_savings(conn, id_, use_miles, rec_df)
         df_with_prices, old_car_price = get_car_prices(df_with_savings)
         full_df = calculate_savings(df_with_prices, old_car_price)
     col = ['make', 'model', 'year', 'co2_emission', 'weekly_savings',
            'yearly_savings', 'price', 'difference', 'five_year_savings']
     final_df = full_df[col]
-    final_df = final_df.sort_values('co2_emission')
+    final_df = final_df.sort_values(['five_year_savings', 'co2_emission'],
+                                    ascending=[False, True])
     print(final_df.to_string(index=False, max_colwidth=20,
                              float_format=lambda x: f'{x:.2f}'))
     conn.close()
