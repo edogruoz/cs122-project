@@ -266,7 +266,7 @@ def get_emissions(conn, id_, use_miles):
     gpm, agpm = c.execute(co2_query, (id_,)).fetchone()
     c.close()
     if not (gpm or agpm):
-        print('Electric Vehicle')
+        print('\nElectric Vehicle')
         return 0.0, 0.0
     if not agpm:
         return 52 * gpm * use_miles, gpm
@@ -277,28 +277,30 @@ def get_emissions(conn, id_, use_miles):
 
 def get_cut_recommendation(emission, gpm):
     """
-    Get recommendation string for how much less the user has to drive per week
-    to meet the average carbon emission value.
+    Get recommendation string for how much less the user has to drive
+    per week to meet the average carbon emission value.
 
-    Inputs:
+    Parameters:
         emission (float): yearly carbon emission of the user in grams.
         gpm (float): grams per mile value for input car.
     
     Returns:
-        s (string): message containing how many miles less the user has to
-        drive to meet average.
+        str: message containing how many miles less the user has to
+            drive to meet average.
     """
     rv = {}
     if emission < AVG_EMISSION:
         return "Your carbon emission is below average."
-    rv["percent"] = str(round((emission - AVG_EMISSION) / emission * 100, 1)) + " percent"
+    rv["percent"] = (str(round((emission - AVG_EMISSION) / emission * 100, 1))
+                     + " percent")
     rv["per year,"] = str(round((emission - AVG_EMISSION)/gpm, 1)) + " miles"
-    rv["per month,"] = str(round((emission/12 - AVG_EMISSION/12)/gpm, 1)) + " miles"
-    rv["per week"] = str(round((emission/52 - AVG_EMISSION/52)/gpm, 1)) + " miles"
+    rv["per month,"] = (str(round((emission/12 - AVG_EMISSION/12)/gpm, 1))
+                        + " miles")
+    rv["per week"] = (str(round((emission/52 - AVG_EMISSION/52)/gpm, 1))
+                      + " miles")
 
     l = ["On", "average,", "you", "should", "drive"]
     l2 = ["less"]
-
     for key, value in rv.items():
         l += [value] + l2
         if key == "percent":
@@ -307,10 +309,8 @@ def get_cut_recommendation(emission, gpm):
         l += [key]
         if key == "per month,":
             l += ["and"]
-
     s = " ".join(l)
     s += "."
-
     return s
 
 
@@ -348,11 +348,11 @@ def rank_pref():
     if len(CHOICES) == 2:
         rank_order.append(CHOICES[0])
     # Rename items in rank list to the less human readable col names
-    return list((pd.Series(rank_order)).map(DICT_MAP))
+    return list((pd.Series(rank_order, dtype = 'object')).map(DICT_MAP))
 
 
 def recommend_cars(conn, id_, use_miles, rank_order, gpm):
-    '''
+    """
     Determines and returns a list of cars to recommend that have less than
       average CO2 emissions with the number of miles inputted by the user.
       It filters for cars that are similar to the user's current car
@@ -366,12 +366,12 @@ def recommend_cars(conn, id_, use_miles, rank_order, gpm):
         rank_order (lst): ordered list of attributes that the user
           cares most about from their current car and wants to be present
           in their new car
-        gpm (float): grams of CO2 emitted per mile by the current car of the 
+        gpm (float): grams of CO2 emitted per mile by the current car of the
           user
     
     Returns:
-        df (pandas.DataFrame): dataframe with cars to recommend
-    '''
+        pandas.DataFrame: dataframe with cars to recommend
+    """
     if gpm == 0:
         return "Your carbon emission is 0 - no recommendations were found!"
 
@@ -380,37 +380,42 @@ def recommend_cars(conn, id_, use_miles, rank_order, gpm):
 
     current_co2 = (gpm * use_miles)
 
-    s1 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
-            co2_emission(vehicles.co2TailpipeGpm, vehicles.co2TailpipeAGpm, " +  str(use_miles) + ") \
-            AS co2_emission, year, trany FROM vehicles WHERE co2_emission <= ? AND co2_emission < ?"
+    s1 = (f'SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, '
+          f'VClass, co2_emission(vehicles.co2TailpipeGpm, '
+          f'vehicles.co2TailpipeAGpm, {str(use_miles)}) '
+          f'AS co2_emission, year, trany FROM vehicles WHERE co2_emission <= '
+          f'? AND co2_emission < ?')
     
-    alt_s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, \
-             year, trany FROM vehicles" #to be potentially used later 
+    alt_s = ('SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, '
+             'fuelType, VClass, year, trany FROM vehicles') #to be potentially used later
             
     params = [AVG_CO2, current_co2]
     a = c.execute(s1, params)
 
-    df = pd.DataFrame(a.fetchall(), columns=["id", "make","model", "pv2", \
-        "pv4", "hpv", "lv2", "lv4", "hlv", "fuelType", "VClass", \
-        "co2_emission", "year", "trany"])
+    df = pd.DataFrame(a.fetchall(),
+                      columns=["id", "make","model", "pv2", "pv4", "hpv",
+                               "lv2", "lv4", "hlv", "fuelType", "VClass",
+                               "co2_emission", "year", "trany"])
 
-    s2 = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year, trany FROM vehicles WHERE id = ?"
+    s2 = ('SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, '
+          'VClass, year, trany FROM vehicles WHERE id = ?')
 
     old_car = c.execute(s2, [str(id_)])
-    car_id, car_make, car_model, car_pv2, car_pv4, car_hpv, \
-        car_lv2, car_lv4, car_hlv, car_fuelType, car_VClass, year, trany = old_car.fetchall()[0]
+    (car_id, car_make, car_model, car_pv2, car_pv4, car_hpv, car_lv2, car_lv4,
+     car_hlv, car_fuelType, car_VClass, year, trany) = old_car.fetchall()[0]
 
     car_lv = max(car_lv4, car_hlv, car_lv2) #taking the max since some will have 0 as entries
     car_pv = max(car_pv2, car_pv4, car_hpv)
 
-    match_dict = {"make":car_make, "VClass":car_VClass, \
-        "fuelType":car_fuelType, "year": year, "luggage_volume": car_lv, \
-        "passenger_volume": car_pv, "trany": trany}
+    match_dict = {"make":car_make, "VClass":car_VClass,
+                  "fuelType":car_fuelType, "year": year,
+                  "luggage_volume": car_lv, "passenger_volume": car_pv,
+                  "trany": trany}
 
-    car_dict = {"id":car_id, "make":car_make,"model": car_model, \
-        "pv2": car_pv2, "pv4":car_pv4,"hpv":car_hpv,\
-        "lv2":car_lv2, "lv4":car_lv4, "hlv":car_hlv, \
-        "fuelType":car_fuelType, "VClass":car_VClass, "year":year, "trany": trany}
+    car_dict = {"id":car_id, "make":car_make, "model": car_model,
+                "pv2": car_pv2, "pv4":car_pv4,"hpv":car_hpv, "lv2":car_lv2,
+                "lv4":car_lv4, "hlv":car_hlv, "fuelType":car_fuelType,
+                "VClass":car_VClass, "year":year, "trany": trany}
 
     df = df.append(car_dict, ignore_index=True) #important for the price function for this to be the LAST row
     
@@ -418,12 +423,13 @@ def recommend_cars(conn, id_, use_miles, rank_order, gpm):
         if of_interest  in ["make", "VClass", "fuelType"]:
             new_df = df[df[of_interest] == match_dict[of_interest]]
         elif of_interest == "year":
-            new_df = df[(df[of_interest] >= match_dict[of_interest]
-             - 5) & (df[of_interest] <= match_dict[of_interest] + 5)]
+            new_df = df[(df[of_interest] >= match_dict[of_interest] - 5)
+                         & (df[of_interest] <= match_dict[of_interest] + 5)]
         elif of_interest == "trany":
             m = df["trany"].str.split(" ", expand=True).iloc[:, 0]
             new_d = pd.concat([df, m], axis=1)
-            new_df = new_d[new_d.iloc[:, -1] == match_dict[of_interest].split()[0]]
+            new_df = new_d[new_d.iloc[:, -1]
+                           == match_dict[of_interest].split()[0]]
             new_df = new_df.drop(new_df.columns[-1], axis=1)
         else:
             if of_interest == "luggage_volume": #choosing the max for comparison to ignore entries of 0
@@ -432,18 +438,20 @@ def recommend_cars(conn, id_, use_miles, rank_order, gpm):
                 if car_lv == 0:
                     continue
                 df = process_df(df, "lv")
-                new_df = df[(df[["lv4", "hlv", "lv2"]].max(axis=1) >= 
-                car_lv * 0.95) & (df[["lv4", "hlv", "lv2"]
-                ].max(axis=1) <= car_lv * 1.05)]
+                new_df = df[(df[["lv4", "hlv", "lv2"]].max(axis=1)
+                             >= car_lv * 0.95)
+                            & (df[["lv4", "hlv", "lv2"]].max(axis=1)
+                               <= car_lv * 1.05)]
             else:
                 if car_pv == 0:
                     car_pv = get_volume(c, alt_s, id_, "pv")
                 if car_pv == 0:
                     continue
                 df = process_df(df, "pv")
-                new_df = df[(df[["pv4", "hpv", "pv2"]].max(axis=1) >= 
-                car_pv * 0.95) & (df[["pv4", "hpv", "pv2"]
-                ].max(axis=1) <= car_pv * 1.05)]
+                new_df = df[(df[["pv4", "hpv", "pv2"]].max(axis=1)
+                             >= car_pv * 0.95)
+                            & (df[["pv4", "hpv", "pv2"]].max(axis=1)
+                               <= car_pv * 1.05)]
         if len(new_df) <= MIN_LIMIT:  # discard the new filtering if the resulting number of cars is too small
             continue
         df = new_df
@@ -460,9 +468,9 @@ def recommend_cars(conn, id_, use_miles, rank_order, gpm):
 
 
 def co2_emission(co2_1, co2_2, miles):
-    '''
+    """
     Calculates co2 emissions with the given number of miles
-      based on an average value, to be used in the sqlite database
+      based on an average value, to be used in the sqlite database.
     
     Parameters:
         co2_1 (float): emitted CO2 in grams/mile for 
@@ -474,31 +482,38 @@ def co2_emission(co2_1, co2_2, miles):
           inputted by the user
     
     Returns:
-        float: gramse of CO2 emitted with the number of miles
+        float: grams of CO2 emitted with the number of miles
           user inputted
-    '''
-
+    """
     if co2_2 != 0:
         co2 = (co2_1 + co2_2)/2
     else:
         co2 = co2_1
-    
     return co2 * miles
 
 
 def get_volume(c, string, id_, type_):
-    '''
-    Get luggage or passenger volume of the input car if it is missing
-    '''
+    """
+    Get luggage or passenger volume of the input car if it is missing.
+
+    Parameters:
+        cursor (obj): cursor for database we will be querying
+        string (str): query statement to excute
+        id_ (int): unique identifier for user's current car
+
+    Returns:
+        float: volume in cubic feet
+    """
     if type_ == "lv":
         lst = ["lv2", "lv4", "hlv"]
     else:
         lst = ["pv2", "pv4", "hpv"]
 
     b = c.execute(string)
-    new_df = pd.DataFrame(b.fetchall(), columns = ["id", "make", \
-        "model", "pv2", "pv4", "hpv", "lv2", "lv4", "hlv", \
-        "fuelType", "VClass", "year", "trany"])
+    new_df = pd.DataFrame(b.fetchall(),
+                          columns = ["id", "make", "model", "pv2", "pv4",
+                                     "hpv", "lv2", "lv4", "hlv", "fuelType",
+                                     "VClass", "year", "trany"])
     row = new_df[new_df["id"] == id_]
     new_df = process_df(new_df, type_, row)
     new_row = new_df[new_df["id"] == id_]
@@ -508,50 +523,51 @@ def get_volume(c, string, id_, type_):
 
 
 def process_df(df, type_, df2=False):
-    '''
-    Given a df, volume type, and a second df, fill rows with no volume info 
-    with info from cars of the same model.
+    """
+    Given a df, volume type, and a second df, fill rows with no volume
+    info with info from cars of the same model.
 
-    Inputs:
-        df (pd df): dataframe to use to get volume information of other cars.
-        type_ (str): volume type to fill in. either "pv" for passenger volume 
-            or "lv" for luggage volume. 
-        df2 (df): a second dataframe that contains rows of cars whose volume
-            values need to be filled in. Defaults no False, in which case
-            df is used for this parameter.
+    Parameters:
+        df (pd df): dataframe to use to get volume information of
+            other cars.
+        type_ (str): volume type to fill in. either "pv" for passenger
+            volume or "lv" for luggage volume. 
+        df2 (df): a second dataframe that contains rows of cars whose
+            volume values need to be filled in. Defaults no False, in
+            which case df is used for this parameter.
     
     Returns:
-        df (pd df): pd dataframe with rows with missing volume information
+        df: pd dataframe with rows with missing volume information
             have been filled in based on similar cars (when possible).
-    '''
+    """
     if isinstance(df2, bool): # means a second df has not been entered
         df2 = df
-
     if type_ == "pv":
         missing_pv = df2[df2[["pv2", "pv4", "hpv"]].max(axis=1) == 0]
         df = helper_process_df(df, missing_pv, "pv")
     elif type_ == "lv":
         missing_lv = df2[df2[["lv2", "lv4", "hlv"]].max(axis=1) == 0]
         df = helper_process_df(df, missing_lv, "lv")
-    
     return df
 
 
 def helper_process_df(df, df2, type_):
-    '''
+    """
     Helper function for process_df.
 
-    Inputs:
-        df (pd df): dataframe to use to get volume information of other cars.
-        df2 (df): a second dataframe that only contains rows with missing
-            volume information of the relevant type.
-        type_ (str): volume type to fill in. either "pv" for passenger volume 
-            or "lv" for luggage volume. 
+    Parameters:
+        df (pd df): dataframe to use to get volume information of
+            other cars.
+        df2 (df): a second dataframe that only contains rows with
+            missing volume information of the relevant type.
+        type_ (str): volume type to fill in. either "pv" for
+            passenger volume or "lv" for luggage volume. 
     
     Returns:
-        df (pd df): pd dataframe with rows with missing volume information
-            have been filled in based on similar cars (when possible).
-    '''
+        df (pd df): pd dataframe with rows with missing volume
+            information have been filled in based on similar
+            cars (when possible).
+    """
     if type_ == "pv":
         cols = ["pv2", "pv4", "hpv"] # columns of interest
     else:
@@ -567,9 +583,11 @@ def helper_process_df(df, df2, type_):
         model_str = model.split()[0] # first word of model name
         year = row["year"]
         
-        alternatives = df[(df["make"] == make) & (df["first_word"] == model_str
-            ) & (df["year"].between(year - 4, year + 4)) & (df["id"] != id) & (
-            df[cols].max(axis=1) > 0)] # similar cars whose volume information is not missing
+        alternatives = df[(df["make"] == make)
+                          & (df["first_word"] == model_str)
+                          & (df["year"].between(year - 4, year + 4))
+                          & (df["id"] != id)
+                          & (df[cols].max(axis=1) > 0)] # similar cars whose volume information is not missing
 
         if len(alternatives) == 0:
             continue
@@ -588,9 +606,10 @@ def helper_process_df(df, df2, type_):
 
 
 def get_savings(conn, id_, use_miles, df):
-    '''
+    """
     Given a df from recommend_cars(), and the user's own car's id,
-    calculate the fuel costs and savings and add them to the df returned.
+    calculate the fuel costs and savings and add them to the df
+    returned.
 
     Parameters:
         conn (obj): connection to sqlite database we will be querying
@@ -600,63 +619,63 @@ def get_savings(conn, id_, use_miles, df):
     
     Returns:
         df: same dataframe with new columns
-    '''
-    s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year, trany FROM vehicles WHERE id = ?"
+    """
+    s = ('SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, '
+         'VClass, year, trany FROM vehicles WHERE id = ?')
     old_weekly_cost = get_fuel_price(id_, conn, use_miles)
     old_yearly_cost = old_weekly_cost * 52
-
-    df.loc[:, "weekly_cost"] = df.id.apply(get_fuel_price, args=(conn, use_miles))
+    df.loc[:, "weekly_cost"] = df.id.apply(get_fuel_price,
+                                           args=(conn, use_miles))
     df.loc[:, "yearly_cost"] = df.loc[:, "weekly_cost"] * 52
     df.loc[:, "weekly_savings"] = old_weekly_cost - df.loc[:, "weekly_cost"]
     df.loc[:, "yearly_savings"] = old_yearly_cost - df.loc[:, "yearly_cost"]
-
     return df
 
 
 def get_fuel_price(id_, conn, use_miles):
-    '''
+    """
     Gives the money spent on fuel for a given car and
     a given number of miles
 
-    conn (obj): connection to sqlite database we will be querying
-    id_ (int): unique identifier a car
-    use_miles (float): estimation for user's weekly milage, 
-        inputted by the user
-    '''
+    Parameters:
+        conn (obj): connection to sqlite database we will be querying
+        id_ (int): unique identifier a car
+        use_miles (float): estimation for user's weekly milage, 
+            inputted by the user
     
+    Returns:
+        float:
+    """
     s1 = "SELECT fuelCost08, fuelCostA08 FROM vehicles WHERE id = ?"
-
     c = conn.cursor()
     r = c.execute(s1, [str(id_)])
     rv = r.fetchall()
     c.close()
 
     fuel1_cost, fuel2_cost = rv[0]
-
     if fuel2_cost:
         cost = (fuel1_cost + fuel2_cost) / 2
     else:
         cost = fuel1_cost
-
     return (cost / YEARLY_MILES) * use_miles
 
 
 def get_car_prices(car_df):
-    '''
+    """
     Crawls prices for the recommended cars and the user's car
-      from kbb and adds them as columns to the inputted dataframe. Tries
-      different options for model names to find a match and asks
-      the user for an estimation if the price for their old car is not found
+    from kbb and adds them as columns to the inputted dataframe.
+    Tries different options for model names to find a match and asks
+    the user for an estimation if the price for their old car is
+    not found.
     
-    Inputs:
+    Parameters:
         car_df (pd.DataFrame): dataframe of cars to be recommended
     
     Returns:
         car_df (pd.DataFrame): dataframe of cars to be recommended
-          with the added price and difference columns
+            with the added price and difference columns
         old_car_price (float): price of the user's current car
-    ''' 
-
+    """
     car_df["price"] = np.nan
 
     pm = urllib3.PoolManager(
@@ -676,11 +695,15 @@ def get_car_prices(car_df):
             html = pm.urlopen(url=myurl, method="GET").data
             soup = bs4.BeautifulSoup(html, features="html.parser")
             title = soup.find_all("title")[0].text
-            if ("Find Your Perfect Car" not in title) and ("Kelley Blue Book | Error" not in title):
+            if (("Find Your Perfect Car" not in title)
+                and ("Kelley Blue Book | Error" not in title)):
                 break
-        if ("Find Your Perfect Car" in title) or ("Kelley Blue Book | Error" in title) or (str(year) not in title):
+        if (("Find Your Perfect Car" in title)
+            or ("Kelley Blue Book | Error" in title)
+            or (str(year) not in title)):
             continue
-        price_text = soup.find_all("script", attrs={"data-rh":"true"})[-1].text
+        price_text = soup.find_all("script",
+                                   attrs={"data-rh":"true"})[-1].text
         m =  re.findall('"price":"([0-9]+)"', price_text)[0]
         if i == len(car_df) - 1:
             old_car_price = m
@@ -692,18 +715,17 @@ def get_car_prices(car_df):
                            style=Style(S_CONFIG + [('qmark', 'fg:#CF5050')]),
                            qmark='\n❗').skip_if(old_car_price is not None,
                                                 old_car_price).ask()
-    car_df["difference"] = float(old_car_price) - car_df.price[car_df.price.notna()]
-
+    car_df["difference"] = (float(old_car_price)
+                            - car_df.price[car_df.price.notna()])
     car_df = car_df.drop(car_df.tail(1).index)
-    
     return car_df, old_car_price
 
 
 def get_info_for_price(data_str):
-    '''
+    """
     Extracts the needed information (make, model, year)
-      from the given row of the dataframe to use for 
-      price crawling
+    from the given row of the dataframe to use for 
+    price crawling.
 
     Parameters:
         data_str: a row of pandas dataframe
@@ -711,10 +733,9 @@ def get_info_for_price(data_str):
     Returns:
         make (str): make of the car
         possible_models (lst): list of possible model names
-          to try and crawl price from kbb
+            to try and crawl price from kbb
         year (int): year the car was made
-    '''
-
+    """
     make = data_str["make"]
     model_lst = data_str["model"].split()
     possible_models = [model_lst[0].lower(), "-".join(model_lst).lower(),]
@@ -722,14 +743,13 @@ def get_info_for_price(data_str):
             possible_models +=  ["-".join(model_lst[:2]).lower()]
     
     year = int(data_str["year"])
-
     return make, possible_models, year
 
 
 def calculate_savings(car_df, old_car_price):
-    '''
+    """
     Calculates the 5-year savings of the user, taking both
-      fuel prices and car prices into account
+    fuel prices and car prices into account.
     
     Parameters:
         car_df (pd.DataFrame): dataframe of cars to be recommended
@@ -737,18 +757,17 @@ def calculate_savings(car_df, old_car_price):
 
     Returns:
         car_df (pd.DataFrame): dataframe of cars to be recommended
-          with added five year saving column
-    '''
-
+            with added five year saving column
+    """
     car_df = car_df.astype({"year":"int32"})
     car_df.loc[:, "five_year_savings"] = 0
 
-    car_df.loc[car_df.difference.notna(), "five_year_savings" ] = \
-        car_df.loc[car_df.difference.notna(), "difference" ] + \
-            car_df.loc[car_df.difference.notna(), "yearly_savings"] * 5
+    car_df.loc[car_df.difference.notna(), "five_year_savings" ] = (
+        car_df.loc[car_df.difference.notna(), "difference" ]
+        + car_df.loc[car_df.difference.notna(), "yearly_savings"] * 5)
 
-    car_df.loc[car_df.difference.isna(), "five_year_savings" ] = \
-         car_df.loc[car_df.difference.isna(), "yearly_savings"] * 5
+    car_df.loc[car_df.difference.isna(), "five_year_savings" ] = (
+         car_df.loc[car_df.difference.isna(), "yearly_savings"] * 5)
 
     return car_df
 
@@ -782,27 +801,26 @@ def go():
     input('Press any key to continue...\n')
 
     rank_order = rank_pref()
-    print(rank_order)
     rec_df = recommend_cars(conn, id_, use_miles, rank_order, gpm)
     if isinstance(rec_df, str):
         final_df = rec_df
     else:
         print('Calculating recommendations...')
         if emissions < AVG_EMISSION:
-            print("Here are some cars that would help you further decrease your carbon emission:")
+            print('Here are some cars that would help you further decrease '
+                  'your carbon emission:')
         else:
-            print("Here are some cars that would help you  decrease your carbon emission to the average:")
+            print('Here are some cars that would help you decrease your '
+                  'carbon emission to the average:')
         df_with_savings = get_savings(conn, id_, use_miles, rec_df)
         df_with_prices, old_car_price = get_car_prices(df_with_savings)
         full_df = calculate_savings(df_with_prices, old_car_price)
-    col = (['make', 'model', 'year']
-            + ['co2_emission', 'weekly_savings', 'yearly_savings', 'price',
-                'difference', 'five_year_savings'])
+    col = ['make', 'model', 'year', 'co2_emission', 'weekly_savings',
+           'yearly_savings', 'price', 'difference', 'five_year_savings']
     final_df = full_df[col]
     final_df = final_df.sort_values('co2_emission')
     print(final_df.to_string(index=False, max_colwidth=20,
-                                float_format=lambda x: f'{x:.2f}'))
-
+                             float_format=lambda x: f'{x:.2f}'))
     conn.close()
 
 
