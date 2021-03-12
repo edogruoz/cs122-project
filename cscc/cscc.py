@@ -371,6 +371,8 @@ def recommend_cars(conn, id_, use_miles, rank_order, gpm):
     Returns:
         df (pandas.DataFrame): dataframe with cars to recommend
     '''
+    if gpm == 0:
+        return "Your carbon emission is 0 - no recommendations were found!"
 
     conn.create_function("co2_emission", 3, co2_emission)
     c = conn.cursor()
@@ -781,10 +783,13 @@ def go():
     print('Debug ranking: ')
     print(rank_order)
     rec_df = recommend_cars(conn, id_, use_miles, rank_order, gpm)
-    print('Calculating recommendations...')
-    df_with_savings = get_savings(conn, id_, use_miles, rec_df)
-    df_with_prices, old_car_price = get_car_prices(df_with_savings)
-    final_df = calculate_savings(df_with_prices, old_car_price)
+    if isinstance(rec_df, string):
+        final_df = rec_df
+    else:
+        print('Calculating recommendations...')
+        df_with_savings = get_savings(conn, id_, use_miles, rec_df)
+        df_with_prices, old_car_price = get_car_prices(df_with_savings)
+        final_df = calculate_savings(df_with_prices, old_car_price)
     print(final_df)
 
     conn.close()
