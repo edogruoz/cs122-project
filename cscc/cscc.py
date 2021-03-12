@@ -600,29 +600,19 @@ def get_savings(conn, id_, use_miles, df):
     Returns:
         df: same dataframe with new columns
     '''
-    new_df = pd.DataFrame()
-
     s = "SELECT id, make, model, pv2, pv4, hpv, lv2, lv4, hlv, fuelType, VClass, year, trany FROM vehicles WHERE id = ?"
-    old_weekly_cost = get_fuel_price(conn, id_, use_miles)
+    old_weekly_cost = get_fuel_price(id_, conn, use_miles)
     old_yearly_cost = old_weekly_cost * 52
 
-    for _, row in df.iterrows():
-        car_id = row['id']
-        weekly_cost = get_fuel_price(conn, car_id, use_miles)
-        yearly_cost = weekly_cost * 52
-        weekly_savings = old_weekly_cost - weekly_cost
-        yearly_savings = old_yearly_cost - yearly_cost
-        new_row = row.copy()
-        new_row['weekly_cost'] = weekly_cost
-        new_row['yearly_cost'] = yearly_cost
-        new_row['weekly_savings'] = weekly_savings
-        new_row['yearly_savings'] = yearly_savings
-        new_df = new_df.append(new_row)
+    df.loc[:, "weekly_cost"] = df.id.apply(get_fuel_price, args=(conn, 400))
+    df.loc[:, "yearly_cost"] = df.loc[:, "weekly_cost"] * 52
+    df.loc[:, "weekly_savings"] = old_weekly_cost - df.loc[:, "yearly_cost"]
+    df.loc[:, "weekly_savings"] = old_yearly_cost - df.loc[:, "yearly_cost"]
 
-    return new_df
+    return df
 
 
-def get_fuel_price(conn, id_, use_miles):
+def get_fuel_price(id_, conn, use_miles):
     '''
     Gives the money spent on fuel for a given car and
     a given number of miles
