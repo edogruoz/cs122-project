@@ -800,17 +800,7 @@ def go():
         df_with_savings = get_savings(conn, id_, use_miles, rec_df)
         df_with_prices, old_car_price = get_car_prices(df_with_savings)
         full_df = calculate_savings(df_with_prices, old_car_price)
-    rank_order = rank_order[:3]
-    if 'make' in rank_order:
-        rank_order.remove('make')
-    if 'year' in rank_order:
-        rank_order.remove('year')
-    if 'luggage_volume' in rank_order:
-        rank_order.remove('luggage_volume')
-    if 'Passenger capacity' in rank_order:
-        rank_order.remove('Passenger capacity')
     col = (['make', 'model', 'year']
-           + rank_order
            + ['co2_emission', 'weekly_savings', 'yearly_savings', 'price',
               'difference', 'five_year_savings'])
     final_df = full_df[col]
