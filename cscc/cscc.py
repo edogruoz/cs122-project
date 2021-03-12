@@ -276,10 +276,20 @@ def get_emissions(conn, id_, use_miles):
 
 def get_recommendation(emission, gpm):
     """
+    Get recommendation string for how much less the user has to drive per week
+    to meet the average carbon emission value.
+
+    Inputs:
+        emission (float): yearly carbon emission of the user in grams.
+        gpm (float): grams per mile value for input car.
+    
+    Returns:
+        s (string): message containing how many miles less the user has to
+        drive to meet average.
     """
     rv = {}
     if emission < AVG_EMISSION:
-        return
+        return "Your carbon emission is below average."
     rv["percent"] = str(round((emission - AVG_EMISSION) / emission * 100, 1)) + " percent"
     rv["per year,"] = str(round((emission - AVG_EMISSION)/gpm, 1)) + " miles"
     rv["per month,"] = str(round((emission/12 - AVG_EMISSION/12)/gpm, 1)) + " miles"
@@ -464,10 +474,22 @@ def get_volume(c, string, id_, type_):
 
 def process_df(df, type_, df2=False):
     '''
-    Given a df, fill rows with no volume info with info from cars
-    of the same model
+    Given a df, volume type, and a second df, fill rows with no volume info 
+    with info from cars of the same model.
+
+    Inputs:
+        df (pd df): dataframe to use to get volume information of other cars.
+        type_ (str): volume type to fill in. either "pv" for passenger volume 
+            or "lv" for luggage volume. 
+        df2 (df): a second dataframe that contains rows of cars whose volume
+            values need to be filled in. Defaults no False, in which case
+            df is used for this parameter.
+    
+    Returns:
+        df (pd df): pd dataframe with rows with missing volume information
+            have been filled in based on similar cars (when possible).
     '''
-    if isinstance(df2, bool):
+    if isinstance(df2, bool): # means a second df has not been entered
         df2 = df
 
     if type_ == "pv":
@@ -482,36 +504,47 @@ def process_df(df, type_, df2=False):
 
 def helper_process_df(df, df2, type_):
     '''
-    Helper function for process_df
+    Helper function for process_df.
+
+    Inputs:
+        df (pd df): dataframe to use to get volume information of other cars.
+        df2 (df): a second dataframe that only contains rows with missing
+            volume information of the relevant type.
+        type_ (str): volume type to fill in. either "pv" for passenger volume 
+            or "lv" for luggage volume. 
+    
+    Returns:
+        df (pd df): pd dataframe with rows with missing volume information
+            have been filled in based on similar cars (when possible).
     '''
     if type_ == "pv":
-        cols = ["pv2", "pv4", "hpv"]
+        cols = ["pv2", "pv4", "hpv"] # columns of interest
     else:
         cols = ["lv2", "lv4", "hlv"]
 
     df["first_word"] = pd.read_table(io.StringIO(df["model"].to_csv(None,
-        index=None)), sep=" ", usecols=[0])
+        index=None)), sep=" ", usecols=[0]) # separate the model column by word, take the first word
 
     for _, row in df2.iterrows():
         id = row["id"]
         make = row["make"]
         model = row["model"]
-        model_str = model.split()[0]
+        model_str = model.split()[0] # first word of model name
         year = row["year"]
         
         alternatives = df[(df["make"] == make) & (df["first_word"] == model_str
             ) & (df["year"].between(year - 4, year + 4)) & (df["id"] != id) & (
-            df[cols].max(axis=1) > 0)]
+            df[cols].max(axis=1) > 0)] # similar cars whose volume information is not missing
 
         if len(alternatives) == 0:
             continue
 
-        for col in cols:
+        for col in cols: # checking for each column within columns of interest
             series = alternatives[(alternatives[col] > 0)][col].dropna()
             if not len(series):
                 continue
-            avg = series.mean().item()
-            ind = df[df["id"] == id].index.values.astype(int)[0]
+            avg = series.mean().item() 
+            ind = df[df["id"] == id].index.values.astype(int)[0] # find index of car of interest
             df.at[ind, col] = avg
 
     df = df.drop(["first_word"], axis=1)
